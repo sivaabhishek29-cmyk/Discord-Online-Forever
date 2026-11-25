@@ -41,6 +41,8 @@ Keep your Discord profile online forever **and stay in a voice channel**.
 - If you get kicked, moved to another VC, or the gateway reconnects, it rejoins after `REJOIN_DELAY` ms (default 5000).
 - A watchdog checks every `WATCHDOG_INTERVAL` ms (default 30000) and rejoins if you're not in the target VC.
 - If your mute/deafen state changes, it re-applies it.
+- Every `REASSERT_INTERVAL` ms (default 300000) it repeats "I'm in this channel" to Discord. That changes nothing while the account is there, and puts it back if it was dropped without notice.
+- When the connection to Discord drops and resumes, the account is still treated as in the channel (no leave/rejoin). If Discord hands out a brand-new session, or the library gives up reconnecting, the app starts over and rejoins by itself.
 - If you join voice yourself from your phone or PC, it does not fight you: it waits and rejoins the target VC when that device leaves voice. (Discord allows one voice session per account, so the first join after a restart does take voice over from another device.)
 
 ## VC timer
@@ -75,6 +77,7 @@ Text can use `{total}` (lifetime VC time), `{stay}` (current stay), `{channel}` 
 | `AUTO_REJOIN` | no | `true` | Rejoin when kicked/moved/disconnected |
 | `REJOIN_DELAY` | no | `5000` | Ms to wait before rejoining |
 | `WATCHDOG_INTERVAL` | no | `30000` | Ms between stay-checks |
+| `REASSERT_INTERVAL` | no | `300000` | Ms between repeats of "I'm in this channel" |
 | `COMMAND_PREFIX` | no | `!` | Prefix for self-commands |
 | `ACTIVITY` | no | `both` | `both`, `custom` (status line only), `rich` (card only) or `off` |
 | `ACTIVITY_TYPE` | no | `competing` | Wording on the card: `playing`, `listening`, `watching` or `competing` |

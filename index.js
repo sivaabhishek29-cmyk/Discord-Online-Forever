@@ -64,6 +64,8 @@ const COMMAND_PREFIX = process.env.COMMAND_PREFIX || "!";
 
 const JOIN_CONFIRM_TIMEOUT = parseIntEnv(process.env.JOIN_CONFIRM_TIMEOUT, 10000);
 const READY_TIMEOUT = parseIntEnv(process.env.READY_TIMEOUT, 45000);
+const RECONNECT_AFTER = parseIntEnv(process.env.RECONNECT_AFTER, 180000);
+const REASSERT_INTERVAL = parseIntEnv(process.env.REASSERT_INTERVAL, 300000);
 const DEBUG = parseBool(process.env.DEBUG, false);
 
 // --- Activity (what shows under the account's name) -------------------------
@@ -123,6 +125,10 @@ let rejoinTimer = null;
 let watchdogTimer = null;
 let everReady = false;
 let lastMuteFix = 0;
+let unconfirmedJoins = 0; // join attempts in a row that Discord did not answer
+let gatewaySessionId = null; // changes only when Discord gives us a brand-new session
+let knownSessionIds = null; // the account's live sessions, as last reported by Discord
+let lastReassert = 0;
 let vcTimer = null; // created in main()
 let lastPresence = null; // JSON of the last activity list sent
 let lastPresenceShape = null;
@@ -187,7 +193,7 @@ function guildIdForChannel(channelId) {
 // do NOT open Eris' voice websocket/UDP connection: sitting in a channel does
 // not need one, and Eris 0.17's voice stack uses an encryption mode Discord no
 // longer offers, so it would just time out and drop us back out of the VC.
-function sendVoiceState(guildId, channelId) {
+function sendVoiceState(guildId, channelId, flipDeaf = false) {
   const shardId = (bot.guildShardMap && bot.guildShardMap[guildId]) || 0;
   const shard = bot.shards.get(shardId);
   if (!shard) return false;
@@ -195,7 +201,7 @@ function sendVoiceState(guildId, channelId) {
     guild_id: guildId,
     channel_id: channelId || null,
     self_mute: SELF_MUTE,
-    self_deaf: SELF_DEAF,
+    self_deaf: flipDeaf ? !SELF_DEAF : SELF_DEAF,
   });
   return true;
 }
@@ -215,12 +221,14 @@ function scheduleRejoin(reason) {
   if (intentionalLeave) return;
   if (!targetChannelId) return;
   if (rejoinTimer) return; // already scheduled
-  log(`🔁 Will rejoin ${describeChannel(targetChannelId)} in ${REJOIN_DELAY}ms (${reason})`);
+  // Back off while Discord keeps not answering, up to once a minute.
+  const delay = Math.min(REJOIN_DELAY * 2 ** Math.min(unconfirmedJoins, 4), Math.max(REJOIN_DELAY, 60000));
+  log(`🔁 Will rejoin ${describeChannel(targetChannelId)} in ${delay}ms (${reason})`);
   rejoinTimer = setTimeout(() => {
     rejoinTimer = null;
     if (intentionalLeave || heldByOtherDevice()) return;
     joinVoice();
-  }, REJOIN_DELAY);
+  }, delay);
   // Don't keep the process alive just for this timer.
   if (rejoinTimer.unref) rejoinTimer.unref();
 }
@@ -230,8 +238,13 @@ function onSelfVoiceState(d) {
   const previous = selfVoice;
 
   if (!d.channel_id) {
-    // Only a "left" for the guild we were in (or if we weren't tracked at all).
+    // Only a "left" if it is about the voice state we are tracking. Other
+    // devices of the account announce "not in voice here" (no server, their own
+    // session) when they log in — that does not take us out of the channel.
     if (previous && d.guild_id && previous.guildId !== d.guild_id) return;
+    if (previous && !d.guild_id && d.session_id && previous.sessionId && d.session_id !== previous.sessionId) {
+      return;
+    }
     selfVoice = null;
     updateStatus();
     if (previous) {
@@ -328,17 +341,26 @@ async function joinVoice(channelId = targetChannelId) {
           resolve(ok);
         },
       };
-      if (!sendVoiceState(guildId, channelId)) resolve(false);
+      // Discord stays silent when it thinks nothing changed (e.g. the account is
+      // already in the channel but we lost track). After a silent attempt, flip
+      // the deafen flag on every other try so there is a change to report back.
+      const flip = unconfirmedJoins % 2 === 1;
+      if (!sendVoiceState(guildId, channelId, flip)) resolve(false);
     });
     pendingJoin = null;
 
     if (confirmed) {
+      unconfirmedJoins = 0;
+      lastReassert = Date.now();
       log(`✅ Joined ${describeChannel(channelId)} — staying here`);
+      lastMuteFix = 0;
+      ensureMuteDeaf(); // puts the flags right if this attempt flipped one
       return true;
     }
+    unconfirmedJoins++;
     log(
-      `❌ Discord did not confirm joining ${describeChannel(channelId)} within ${JOIN_CONFIRM_TIMEOUT}ms. ` +
-        "Usual causes: no Connect permission, channel is full, or wrong channel ID."
+      `❌ Discord did not confirm joining ${describeChannel(channelId)} within ${JOIN_CONFIRM_TIMEOUT}ms ` +
+        `(attempt ${unconfirmedJoins}). Usual causes: no Connect permission, channel is full, or wrong channel ID.`
     );
     scheduleRejoin("join not confirmed");
     return false;
@@ -372,7 +394,19 @@ function startWatchdog() {
   watchdogTimer = setInterval(() => {
     if (!bot || !bot.ready || !targetChannelId) return;
     if (intentionalLeave || !AUTO_REJOIN) return;
-    if (heldByOtherDevice()) return;
+
+    if (heldByOtherDevice()) {
+      // Another device has the voice session. If Discord says that device is
+      // gone, nobody told us it left — take the channel back.
+      if (knownSessionIds && !knownSessionIds.has(selfVoice.sessionId)) {
+        log("📱 The other device that held voice is gone — rejoining");
+        selfVoice = null;
+        safely("activity", syncTimerAndPresence);
+        joinVoice();
+      }
+      return;
+    }
+
     const currentId = getSelfVoiceChannelId();
     if (currentId !== targetChannelId) {
       log(
@@ -380,8 +414,17 @@ function startWatchdog() {
           `expected ${describeChannel(targetChannelId)} — rejoining`
       );
       joinVoice();
-    } else {
-      ensureMuteDeaf();
+      return;
+    }
+
+    ensureMuteDeaf();
+    // We only know we are in the channel from what Discord told us earlier. Say
+    // "I'm in this channel" again every few minutes: it changes nothing if that
+    // is still true, and puts the account back if it was dropped without notice.
+    if (!joining && Date.now() - lastReassert >= REASSERT_INTERVAL) {
+      lastReassert = Date.now();
+      if (DEBUG) log("🐕 Watchdog: re-asserting the voice channel");
+      sendVoiceState(selfVoice.guildId, targetChannelId);
     }
   }, WATCHDOG_INTERVAL);
   if (watchdogTimer.unref) watchdogTimer.unref();
@@ -700,6 +743,71 @@ const UNKNOWN_CHANNEL = /^Unknown (guild )?(text )?channel type/;
 let skippedChannels = 0;
 const DEBUG_IMPORTANT = /reconnect|disconnected|heartbeat timeout|invalidating|terminating/i;
 
+// Runs an optional extra (timer, activity, status page). A problem there is
+// logged and must never stop the account from staying in the VC.
+function safely(what, fn) {
+  try {
+    return fn();
+  } catch (err) {
+    log(`⚠️ ${what} problem (ignored): ${safeErr(err)}`);
+    return undefined;
+  }
+}
+
+let notReadySince = 0;
+
+// Runs when the connection is usable again: after a brand-new login, and after
+// the library resumes the same session following a dropped connection.
+function onClientReady() {
+  everReady = true;
+  fatalReason = null;
+  notReadySince = 0;
+
+  // On a resume the account never left the channel, so what we know is still
+  // true. A new session ID means Discord started us from scratch.
+  const shard = bot.shards.get(0);
+  const sessionId = shard ? shard.sessionID : null;
+  const resumed = !!sessionId && sessionId === gatewaySessionId;
+  gatewaySessionId = sessionId;
+
+  if (resumed) {
+    const here = getSelfVoiceChannelId();
+    log(`🔄 Reconnected to the same session — ${here ? `still in ${describeChannel(here)}` : "not in a VC"}`);
+  } else {
+    // A fresh session never inherits the old one's voice state.
+    selfVoice = null;
+    ourVoiceSessionId = null;
+    unconfirmedJoins = 0;
+    if (targetChannelId) intentionalLeave = false;
+    log(`✅ Logged in as ${bot.user.username} (${bot.user.id})`);
+    log(
+      `📡 In ${bot.guilds.size} server(s)` +
+        (skippedChannels ? ` (ignored ${skippedChannels} forum/other non-voice channels Eris doesn't know)` : "")
+    );
+    skippedChannels = 0;
+  }
+
+  // Staying in the VC comes first; nothing below may get in its way.
+  if (targetChannelId) {
+    if (!intentionalLeave) joinVoice(); // does nothing if already there
+  } else if (!resumed) {
+    log("ℹ️ No VOICE_CHANNEL_ID set — staying online only.");
+    const lines = listVoiceChannels();
+    if (lines.length) {
+      log(`📋 Voice channels (copy an ID and set VOICE_CHANNEL_ID or send "!join <id>"):\n${lines.join("\n")}`);
+    }
+  }
+  startWatchdog();
+
+  safely("status page", updateStatus);
+  safely("activity", () => {
+    lastPresence = null; // send the activity again
+    syncTimerAndPresence();
+    lookupApplication();
+    checkActivityPrivacy();
+  });
+}
+
 function clip(text, max = 300) {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
@@ -816,6 +924,16 @@ function main() {
   // if it doesn't within a few seconds, push it over the line.
   bot.on("shardPreReady", (id) => {
     log(`🔓 Discord accepted the login (shard ${id})`);
+    // Discord can replace our session on a live connection. The library then
+    // logs in again but does not announce "ready" a second time, so the new
+    // session (which is not in any voice channel) would go unnoticed.
+    setImmediate(() => {
+      const shard = bot.shards.get(id);
+      if (bot.ready && shard && shard.sessionID && shard.sessionID !== gatewaySessionId) {
+        log("🔁 Discord replaced the session — starting over");
+        onClientReady();
+      }
+    });
     const t = setTimeout(() => {
       const shard = bot.shards.get(id);
       if (shard && !shard.ready && forceShardReady(shard)) {
@@ -830,16 +948,23 @@ function main() {
   });
   bot.on("connect", (id) => log(`🔌 Gateway socket open (shard ${id}) — logging in...`));
   bot.on("shardResume", (id) => {
-    log(`✅ Gateway session resumed (shard ${id})`);
-    syncTimerAndPresence();
+    if (DEBUG) log(`✅ Gateway session resumed (shard ${id})`);
+    safely("activity", syncTimerAndPresence);
   });
 
   // Track our own voice state straight from the gateway.
   bot.on("rawWS", (packet) => {
     if (!packet || !packet.d) return;
     try {
+      if (packet.t === "SESSIONS_REPLACE" || (packet.t === "READY" && Array.isArray(packet.d.sessions))) {
+        const list = packet.t === "READY" ? packet.d.sessions : packet.d;
+        if (Array.isArray(list)) knownSessionIds = new Set(list.map((x) => x && x.session_id).filter(Boolean));
+      }
       if (packet.t === "SESSIONS_REPLACE") onSessions(packet.d);
-      else if (packet.t === "READY" && Array.isArray(packet.d.sessions)) setImmediate(() => onSessions(packet.d.sessions));
+      else if (packet.t === "READY" && Array.isArray(packet.d.sessions)) {
+        const sessions = packet.d.sessions;
+        setImmediate(() => safely("session report", () => onSessions(sessions)));
+      }
       else if (packet.t === "USER_SETTINGS_UPDATE" && bot.userSettings) {
         Object.assign(bot.userSettings, packet.d);
         if (packet.d.show_current_game === true) privacyWarned = false;
@@ -855,42 +980,14 @@ function main() {
     } catch (err) {
       log(`⚠️ Voice state handler error: ${safeErr(err)}`);
     }
-    syncTimerAndPresence();
+    safely("activity", syncTimerAndPresence);
   });
 
-  bot.on("ready", () => {
-    everReady = true;
-    fatalReason = null;
-    // A fresh session never inherits the old one's voice state.
-    selfVoice = null;
-    ourVoiceSessionId = null;
-    lastPresence = null; // new session: send the activity again
-    syncTimerAndPresence();
-    lookupApplication();
-    checkActivityPrivacy();
-    log(`✅ Logged in as ${bot.user.username} (${bot.user.id})`);
-    log(
-      `📡 In ${bot.guilds.size} server(s)` +
-        (skippedChannels ? ` (ignored ${skippedChannels} forum/other non-voice channels Eris doesn't know)` : "")
-    );
-    skippedChannels = 0;
-    updateStatus();
-    if (targetChannelId) {
-      intentionalLeave = false;
-      joinVoice();
-    } else {
-      log("ℹ️ No VOICE_CHANNEL_ID set — staying online only.");
-      const lines = listVoiceChannels();
-      if (lines.length) {
-        log(`📋 Voice channels (copy an ID and set VOICE_CHANNEL_ID or send "!join <id>"):\n${lines.join("\n")}`);
-      }
-    }
-    startWatchdog();
-  });
+  bot.on("ready", onClientReady);
 
   bot.on("disconnect", () => {
-    syncTimerAndPresence(); // pauses the VC timer while the connection is down
-    updateStatus();
+    safely("activity", syncTimerAndPresence); // pauses the VC timer while the connection is down
+    safely("status page", updateStatus);
   });
 
   bot.on("shardDisconnect", (err, id) => {
@@ -920,11 +1017,13 @@ function main() {
   });
 
   // Keep the saved total fresh, and the shown time roughly current.
-  const saveTick = setInterval(() => vcTimer.save(), 60000);
+  const saveTick = setInterval(() => safely("VC timer", () => vcTimer.save()), 60000);
   if (saveTick.unref) saveTick.unref();
   const presenceTick = setInterval(() => {
-    lookupApplication();
-    refreshPresence();
+    safely("activity", () => {
+      lookupApplication();
+      refreshPresence();
+    });
   }, ACTIVITY_REFRESH);
   if (presenceTick.unref) presenceTick.unref();
 
@@ -932,7 +1031,22 @@ function main() {
 
   // If login hangs, say so instead of sitting silent.
   const readyCheck = setInterval(() => {
-    if (bot.ready) return;
+    if (bot.ready) {
+      notReadySince = 0;
+      return;
+    }
+    if (!notReadySince) notReadySince = Date.now();
+    // Some disconnects make the library give up instead of retrying. If we have
+    // been offline for a while (and the token was not rejected), start over.
+    if (!fatalReason && Date.now() - notReadySince >= RECONNECT_AFTER) {
+      notReadySince = Date.now();
+      log("♻️ Offline for too long — starting a fresh connection to Discord");
+      safely("reconnect", () => {
+        for (const shard of bot.shards.values()) shard.disconnect({ reconnect: false });
+        bot.connect().catch((err) => log(`❌ Reconnect failed: ${clip(safeErr(err))}`));
+      });
+      return;
+    }
     const shardInfo = [...bot.shards.values()].map((s) => `shard ${s.id}: ${s.status}`).join(", ");
     log(
       fatalReason
