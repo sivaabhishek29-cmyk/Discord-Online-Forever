@@ -110,6 +110,7 @@ function buildActivities(cfg, state) {
     stay: state.stay,
     channel: state.channelName || "voice",
     server: state.serverName || "",
+    level: "",
   };
   const activities = [];
 
@@ -134,6 +135,8 @@ function buildActivities(cfg, state) {
     const clockStart = cfg.clock === "stay" ? state.stayStart : state.totalStart || state.stayStart;
     // An end time makes Discord count DOWN to it instead (also ticking by itself).
     if (state.countdownEnd) rich.timestamps = { end: state.countdownEnd };
+    // Started at local midnight, the same clock reads the time of day.
+    else if (cfg.clock === "time" && state.dayStart) rich.timestamps = { start: state.dayStart };
     else if (state.inVoice && clockStart) rich.timestamps = { start: clockStart };
     if (cfg.imageId) {
       rich.assets = { large_image: cfg.imageId, large_text: clamp(cfg.appName || "Voice Chat") };
@@ -144,6 +147,26 @@ function buildActivities(cfg, state) {
       rich.metadata = { button_urls: buttons.map((b) => b.url) };
     }
     activities.push(rich);
+  }
+
+  // Second card: a progress bar that Discord moves by itself (the way it shows
+  // a song), filling once per level of voice time. Only while in voice — the
+  // bar cannot be paused.
+  const second = cfg.card2;
+  if (second && cfg.mode !== "off" && cfg.mode !== "custom" && state.inVoice && state.totalStart && second.levelMs > 0) {
+    const total = Math.max(0, Number(state.totalMs) || 0);
+    const done = Math.floor(total / second.levelMs); // levels completed
+    const start = state.totalStart + done * second.levelMs;
+    const levelValues = { ...values, level: String(done + 1) };
+    const bar = {
+      name: clamp(fill(second.name, levelValues)) || "voice",
+      type: second.type === 3 ? 3 : 2, // only "Watching" and "Listening to" draw a bar
+      details: clamp(fill(second.details, levelValues)),
+      state: clamp(fill(second.state, levelValues)),
+      timestamps: { start, end: start + second.levelMs },
+    };
+    if (second.appId) bar.application_id = second.appId;
+    activities.push(bar);
   }
 
   return activities;

@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node --check index.js && node --check keep_alive.js && node --check eris_user_patch.js && node --check alerts.js && node test/timer.test.js && node test/stay.test.js && node test/login.test.js && node test/resume.test.js && node test/reassert.test.js && node test/giveup.test.js && node test/ticking.test.js && node test/alerts.test.js"
+    "test": "node --check index.js && node --check keep_alive.js && node --check eris_user_patch.js && node --check alerts.js && node test/timer.test.js && node test/stay.test.js && node test/login.test.js && node test/resume.test.js && node test/reassert.test.js && node test/giveup.test.js && node test/ticking.test.js && node test/alerts.test.js && node test/cards.test.js"
   },
   "author": "",
   "license": "ISC",

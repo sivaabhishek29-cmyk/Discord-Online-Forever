@@ -53,7 +53,7 @@ Eris.Client.prototype.getGateway = async () => ({ url: "wss://gateway.test" });
 
 global.fetch = async () => { throw new Error("offline"); }; // application lookup fails: must not matter
 Object.assign(process.env, {
-  token: TOKEN, VOICE_CHANNEL_ID: VC, JOIN_CONFIRM_TIMEOUT: "500", PRESENCE_DEBOUNCE: "20",
+  token: TOKEN, VOICE_CHANNEL_ID: VC, JOIN_CONFIRM_TIMEOUT: "500", PRESENCE_DEBOUNCE: "20", CARD2: "off",
   DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "login-test-")),
 });
 require(path.join(__dirname, "..", "index.js"));
