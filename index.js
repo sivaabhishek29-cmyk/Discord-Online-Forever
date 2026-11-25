@@ -84,18 +84,20 @@ const ACTIVITY_TYPE = (process.env.ACTIVITY_TYPE || "competing").trim().toLowerC
 const activityConfig = {
   mode: ACTIVITY_MODE,
   cardType: ACTIVITY_TYPE in CARD_TYPES ? CARD_TYPES[ACTIVITY_TYPE] : CARD_TYPES.competing,
+  // What the card's ticking clock counts: lifetime VC time, or only the current stay.
+  clock: (process.env.ACTIVITY_CLOCK || "").trim().toLowerCase() === "stay" ? "stay" : "total",
   appId: /^\d{15,25}$/.test(APPLICATION_ID) ? APPLICATION_ID : null,
   appName: process.env.ACTIVITY_NAME || null, // filled in from Discord if not set
   imageId: null, // filled in from the application's uploaded images
   customText: process.env.CUSTOM_STATUS || DEFAULT_CUSTOM_TEXT,
   customTextIdle: "Total VC time: {total}",
   customEmoji: process.env.CUSTOM_STATUS_EMOJI === undefined ? "🎧" : process.env.CUSTOM_STATUS_EMOJI,
-  details: process.env.ACTIVITY_DETAILS || "Chilling in {channel}",
+  details: process.env.ACTIVITY_DETAILS || "learning MLL {channel}",
   detailsIdle: "Not in voice right now",
   state: process.env.ACTIVITY_STATE || "Total VC time: {total}",
 };
 const ACTIVITY_IMAGE = process.env.ACTIVITY_IMAGE || "";
-const ACTIVITY_REFRESH = parseIntEnv(process.env.ACTIVITY_REFRESH, 300000);
+const ACTIVITY_REFRESH = parseIntEnv(process.env.ACTIVITY_REFRESH, 60000);
 const PRESENCE_DEBOUNCE = parseIntEnv(process.env.PRESENCE_DEBOUNCE, 2000);
 
 // --- VC timer storage -------------------------------------------------------
@@ -517,6 +519,7 @@ function refreshPresence() {
           total: formatDuration(vcTimer.totalMs()),
           stay: formatDuration(vcTimer.stayMs()),
           stayStart: vcTimer.stayStart(),
+          totalStart: vcTimer.totalStart(),
         })
       : [];
     const payload = JSON.stringify([STATUS, activities]);

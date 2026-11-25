@@ -88,8 +88,11 @@ function buildActivities(cfg, state) {
       details: clamp(state.inVoice ? fill(cfg.details, values) : fill(cfg.detailsIdle, values)),
       state: clamp(fill(cfg.state, values)),
     };
-    // Discord renders a live "elapsed" clock from this, no updates needed.
-    if (state.inVoice && state.stayStart) rich.timestamps = { start: state.stayStart };
+    // Discord draws a clock from this that ticks every second on the viewer's
+    // screen, with no updates from us. (Text can't do that: Discord only allows
+    // a few status changes per 20 seconds.)
+    const clockStart = cfg.clock === "stay" ? state.stayStart : state.totalStart || state.stayStart;
+    if (state.inVoice && clockStart) rich.timestamps = { start: clockStart };
     if (cfg.imageId) {
       rich.assets = { large_image: cfg.imageId, large_text: clamp(cfg.appName || "Voice Chat") };
     }

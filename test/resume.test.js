@@ -9,7 +9,7 @@ h.start({ JOIN_CONFIRM_TIMEOUT: "150", REJOIN_DELAY: "40", WATCHDOG_INTERVAL: "1
 const inVcCard = () => {
   const acts = h.shownActivities() || [];
   const card = acts.find((a) => a.application_id);
-  return !!(card && card.details === "Chilling in Lounge" && card.timestamps);
+  return !!(card && card.details === "learning MLL Lounge" && card.timestamps);
 };
 const joins = () => h.sentOp(4).filter((p) => p.d.channel_id === h.VC).length;
 

@@ -69,6 +69,9 @@ function createVcTimer({ file, now = Date.now, onError = () => {} }) {
     },
     running: () => since !== null,
     stayStart: () => since,
+    // Moment a clock would have started to read the lifetime total right now.
+    // Constant during a stay, so a live clock built on it needs no updates.
+    totalStart: () => (since === null ? null : since - data.totalMs),
     stayMs,
     totalMs: () => data.totalMs + stayMs(),
     // Small extra settings stored next to the total (e.g. the custom status text).
