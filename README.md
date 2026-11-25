@@ -43,6 +43,26 @@ Keep your Discord profile online forever **and stay in a voice channel**.
 - If your mute/deafen state changes, it re-applies it.
 - If you join voice yourself from your phone or PC, it does not fight you: it waits and rejoins the target VC when that device leaves voice. (Discord allows one voice session per account, so the first join after a restart does take voice over from another device.)
 
+## VC timer
+
+The app counts how long the account has been in voice and keeps a running total.
+
+- See it with `!timer`, in `!status`, on the keep-alive URL at `/health`, and in the activity under the account's name.
+- The total is saved to `vc-timer.json`. To keep it across redeploys the file must live on persistent storage:
+  **Railway → your project → Create → Volume → attach it to this service → mount path `/data`.** Nothing else to set; the app finds the volume by itself. Without a volume the total starts from zero on every redeploy (the logs warn about this).
+- On other hosts, set `DATA_DIR` to a folder that survives restarts.
+
+## Activity (what shows under the account's name)
+
+By default the account shows two things:
+
+- a **custom status**: `🎧 In VC for 2d 3h`
+- a **Rich Presence card** from your Discord application (`APPLICATION_ID`): the app's name, `Chilling in <channel>`, `Total VC time: …`, and a live elapsed clock for the current stay
+
+The card's picture is the first image uploaded to the application (Developer Portal → your app → Rich Presence → Art Assets). Set `ACTIVITY_IMAGE` to an asset name to pick another. With no images uploaded the card shows without a picture.
+
+Text can use `{total}` (lifetime VC time), `{stay}` (current stay), `{channel}` and `{server}`.
+
 ## Config (env vars / secrets)
 
 | Key | Required | Default | Description |
@@ -56,6 +76,17 @@ Keep your Discord profile online forever **and stay in a voice channel**.
 | `REJOIN_DELAY` | no | `5000` | Ms to wait before rejoining |
 | `WATCHDOG_INTERVAL` | no | `30000` | Ms between stay-checks |
 | `COMMAND_PREFIX` | no | `!` | Prefix for self-commands |
+| `ACTIVITY` | no | `both` | `both`, `custom` (status line only), `rich` (card only) or `off` |
+| `STATUS` | no | `online` | `online`, `idle`, `dnd` or `invisible` |
+| `APPLICATION_ID` | no | built in | Discord application used for the card |
+| `CUSTOM_STATUS` | no | `In VC for {total}` | Custom status text |
+| `CUSTOM_STATUS_EMOJI` | no | `🎧` | Emoji in front of the custom status (empty for none) |
+| `ACTIVITY_DETAILS` | no | `Chilling in {channel}` | First line of the card |
+| `ACTIVITY_STATE` | no | `Total VC time: {total}` | Second line of the card |
+| `ACTIVITY_IMAGE` | no | first image | Name of the application image to show |
+| `ACTIVITY_NAME` | no | app's name | Title of the card |
+| `ACTIVITY_REFRESH` | no | `300000` | Ms between updates of the shown time |
+| `DATA_DIR` | no | Railway volume, else `./data` | Folder for `vc-timer.json` |
 | `DEBUG` | no | `false` | Log every gateway message (noisy) |
 
 \* If `VOICE_CHANNEL_ID` is not set, the bot stays online only and logs all voice channels so you can copy an ID. You can also join later with `!join <channelId>` (see below) without restarting.
@@ -71,6 +102,9 @@ Send these from your own account (DM or any text channel). Only your own message
 - `!leave` — leave VC and pause auto-rejoin until next `!join`
 - `!status` — show current VC / target / connection state
 - `!vcs` — list all voice channels with IDs
+- `!timer` — time in VC for this stay and in total
+- `!activity <text>` — change the custom status text (kept across restarts)
+- `!activity off` / `!activity on` / `!activity reset` — hide it, show it, or restore the default text
 - `!help` — show help
 
 ## Troubleshooting
