@@ -58,7 +58,7 @@ The app counts how long the account has been in voice and keeps a running total.
 
 By default the account shows two things:
 
-- a **custom status** with the pet and the stopwatch: `😺 Mochi is happy ♥♥♥♡♡ · In VC for 09d-14h-47m-54s`
+- a **custom status**: `🎧 In VC for 09d-14h-47m-54s`
 - a **Rich Presence card** from your Discord application (`APPLICATION_ID`): `Competing in <app name>`, `Chilling with Alya 🩷🎀`, `dev Lovelycrxshx ♠`, a clock that counts your total VC time, ticking every second, and two buttons (`Self-run acc, not a real user`, `Contact Admin`) that open a Discord profile
 
 The clock is drawn by Discord on the viewer's screen, so it moves every second without the app sending anything. The custom status is re-sent every 5 seconds with the current days, hours, minutes and seconds. That is as fast as Discord permits: it allows 5 status changes per 20 seconds and disconnects accounts that go over.
@@ -67,26 +67,7 @@ The card's picture is the first image uploaded to the application (Developer Por
 
 The card can have up to two link buttons (`BUTTON1_LABEL` + `BUTTON1_URL`, `BUTTON2_LABEL` + `BUTTON2_URL`). Discord does not show your own buttons to you: check them from another account. A link to a Discord profile is `https://discord.com/users/<user id>`.
 
-Text can use `{total}` (lifetime VC time), `{stay}` (current stay), `{channel}`, `{server}` and `{pet}` (the pet's line).
-
-## Pet
-
-A virtual pet lives on the status line. Its face is the status emoji and follows its mood:
-
-| Face | Meaning |
-|---|---|
-| 😻 / 😺 | very happy / happy |
-| 😾 | bored: it wants `play` |
-| 😿 / 🙀 | hungry / starving: it wants `feed` |
-| 😴 | asleep (23:00–07:00 India time by default); nothing drains and it cannot be fed |
-
-A full pet gets hungry over about 12 waking hours and bored over about 8. It never dies.
-
-Anyone who can DM the account looks after it by sending **one word**: `feed`, `play`, `pat` or `stats` (`help` explains this). The account answers with one short line. Any other DM gets no answer, messages in servers are ignored, and answers are limited to one per person every 2 seconds and 12 a minute in total. Automatic replies are one more thing Discord can flag on a user account; set `PET=off` to remove the pet completely.
-
-From the account itself: `!pet` (how it is doing), `!pet feed`, `!pet play`, `!pet pat`, `!pet name <name>`, `!pet off`, `!pet on`.
-
-The pet is saved in the same file as the VC timer, so it needs the same Railway Volume to survive redeploys. If you set your own status text (`CUSTOM_STATUS` or `!activity <text>`), put `{pet}` in it to keep the pet's line.
+Text can use `{total}` (lifetime VC time), `{stay}` (current stay), `{channel}` and `{server}`.
 
 ## Config (env vars / secrets)
 
@@ -106,21 +87,14 @@ The pet is saved in the same file as the VC timer, so it needs the same Railway 
 | `ACTIVITY_TYPE` | no | `competing` | Wording on the card: `playing`, `listening`, `watching` or `competing` |
 | `STATUS` | no | `online` | `online`, `idle`, `dnd` or `invisible` |
 | `APPLICATION_ID` | no | built in | Discord application used for the card |
-| `CUSTOM_STATUS` | no | `{pet} · In VC for {total}` | Custom status text |
-| `CUSTOM_STATUS_EMOJI` | no | the pet's face (`🎧` with `PET=off`) | Emoji in front of the custom status (empty for none) |
+| `CUSTOM_STATUS` | no | `In VC for {total}` | Custom status text |
+| `CUSTOM_STATUS_EMOJI` | no | `🎧` | Emoji in front of the custom status (empty for none) |
 | `ACTIVITY_DETAILS` | no | `Chilling with Alya 🩷🎀` | First line of the card |
 | `ACTIVITY_STATE` | no | `dev Lovelycrxshx ♠` | Second line of the card |
 | `BUTTON1_LABEL` | no | `Self-run acc, not a real user` | Text on the first button (max 32 characters). `off` removes the button |
 | `BUTTON1_URL` | no | `https://discord.com/users/825998094067695616` | Link the first button opens |
 | `BUTTON2_LABEL` | no | `Contact Admin` | Text on the second button. `off` removes the button |
 | `BUTTON2_URL` | no | `https://discord.com/users/825998094067695616` | Link the second button opens |
-| `PET` | no | `on` | `off` removes the pet |
-| `PET_NAME` | no | `Mochi` | The pet's name (`!pet name <name>` overrides it) |
-| `PET_EMOJI` | no | cat faces | One fixed emoji instead of the mood faces, e.g. `🐶` |
-| `PET_SLEEP` | no | `23-7` | Hours it sleeps, `from-to`. `0-0` = never |
-| `PET_TIMEZONE` | no | `Asia/Kolkata` | Time zone for the sleeping hours |
-| `PET_HUNGER_HOURS` | no | `12` | Waking hours from full to starving |
-| `PET_BORED_HOURS` | no | `8` | Waking hours from fun to bored |
 | `ACTIVITY_IMAGE` | no | first image | Name of the application image to show |
 | `ACTIVITY_NAME` | no | app's name | Title of the card |
 | `ACTIVITY_CLOCK` | no | `total` | What the card's ticking clock counts: `total` (lifetime VC time) or `stay` (current stay) |
