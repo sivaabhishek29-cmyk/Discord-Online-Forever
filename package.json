@@ -1,13 +1,17 @@
 {
   "name": "discord-online-forever-main",
   "version": "1.0.0",
-  "description": "Keep ypou Discord profile online forever",
+  "description": "Keep your Discord profile online forever and stay in a voice channel",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js",
+    "test": "node --check index.js && node --check keep_alive.js && echo \"syntax ok\""
   },
   "author": "",
   "license": "ISC",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "eris": "^0.17.2"
   }
