@@ -145,3 +145,48 @@ console.log("TIMER TESTS PASSED");
   }
   console.log("COUNTDOWN TESTS PASSED");
 }
+
+// Time-of-day clock and the second card with its self-moving level bar.
+{
+  const HOUR = 3600000;
+  const base = { mode: "both", appId: "42", customText: "x", customTextIdle: "y", details: "a", detailsIdle: "b", state: "c" };
+  const st = { inVoice: true, total: "1m", stay: "1m", stayStart: 5000, totalStart: 3000, dayStart: 1000, channelName: "General" };
+
+  const timeCard = buildActivities({ ...base, clock: "time" }, st)[1];
+  assert.deepStrictEqual(timeCard.timestamps, { start: 1000 }, "clock started at local midnight");
+  assert.deepStrictEqual(buildActivities({ ...base, clock: "time" }, { ...st, inVoice: false })[1].timestamps, { start: 1000 }, "time of day shows out of voice too");
+  assert.deepStrictEqual(buildActivities({ ...base, clock: "time" }, { ...st, countdownEnd: 9 })[1].timestamps, { end: 9 }, "a countdown wins over the time of day");
+
+  const card2 = { type: 2, name: "{channel}", details: "Voice level {level}", state: "New level every 24h in voice", levelMs: 24 * HOUR };
+  // 9 days 14h 47m 54s of voice so far → level 10, bar 14:47:54 into 24:00:00.
+  const total = 9 * 24 * HOUR + 14 * HOUR + 47 * 60000 + 54000;
+  const now = 1_800_000_000_000;
+  const acts = buildActivities({ ...base, card2 }, { ...st, totalMs: total, totalStart: now - total });
+  assert.strictEqual(acts.length, 3, "status line + two cards");
+  const bar = acts[2];
+  assert.deepStrictEqual(
+    { ...bar, timestamps: undefined },
+    { name: "General", type: 2, details: "Voice level 10", state: "New level every 24h in voice", timestamps: undefined }
+  );
+  assert.strictEqual(now - bar.timestamps.start, 14 * HOUR + 47 * 60000 + 54000, "bar position = time into this level");
+  assert.strictEqual(bar.timestamps.end - bar.timestamps.start, 24 * HOUR, "bar length = one level");
+  assert(!("application_id" in bar), "no application needed for the bar card");
+  assert.strictEqual(acts[1].application_id, "42", "the first card is untouched");
+
+  // Start and end stay put for the whole level, so nothing has to be re-sent.
+  const later = buildActivities({ ...base, card2 }, { ...st, totalMs: total + HOUR, totalStart: now - total })[2];
+  assert.deepStrictEqual(later.timestamps, bar.timestamps);
+  // Level up: next number, bar starts again from zero.
+  const next = buildActivities({ ...base, card2 }, { ...st, totalMs: 10 * 24 * HOUR + 1000, totalStart: now - total })[2];
+  assert.strictEqual(next.details, "Voice level 11");
+  assert.strictEqual(next.timestamps.start, bar.timestamps.end);
+
+  assert.strictEqual(buildActivities({ ...base, card2 }, { ...st, inVoice: false, totalMs: total, totalStart: null }).length, 2, "no bar outside voice");
+  assert.strictEqual(buildActivities({ ...base, mode: "custom", card2 }, { ...st, totalMs: total }).length, 1, "status-only mode has no cards");
+  assert.strictEqual(buildActivities({ ...base, mode: "off", card2 }, { ...st, totalMs: total }).length, 0);
+  const watching = buildActivities({ ...base, card2: { ...card2, type: 3, appId: "77" } }, { ...st, totalMs: 0 })[2];
+  assert.strictEqual(watching.type, 3);
+  assert.strictEqual(watching.application_id, "77");
+  assert.strictEqual(watching.details, "Voice level 1");
+  console.log("TWO-CARD TESTS PASSED");
+}

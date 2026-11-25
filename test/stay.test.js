@@ -75,6 +75,8 @@ Object.assign(process.env, {
   WATCHDOG_INTERVAL: "150",
   JOIN_CONFIRM_TIMEOUT: "120",
   PRESENCE_DEBOUNCE: "20",
+  ACTIVITY_CLOCK: "total", // cards.test.js covers the time-of-day clock and the second card
+  CARD2: "off",
   APPLICATION_ID: APP_ID,
   DATA_DIR,
 });

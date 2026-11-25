@@ -92,8 +92,11 @@ function buttonFromEnv(n, defaultLabel, defaultUrl) {
 const activityConfig = {
   mode: ACTIVITY_MODE,
   cardType: ACTIVITY_TYPE in CARD_TYPES ? CARD_TYPES[ACTIVITY_TYPE] : CARD_TYPES.competing,
-  // What the card's ticking clock counts: lifetime VC time, or only the current stay.
-  clock: (process.env.ACTIVITY_CLOCK || "").trim().toLowerCase() === "stay" ? "stay" : "total",
+  // What the card's ticking clock shows: the local time of day ("time"),
+  // lifetime VC time ("total"), or only the current stay ("stay").
+  clock: ["time", "total", "stay"].includes((process.env.ACTIVITY_CLOCK || "").trim().toLowerCase())
+    ? process.env.ACTIVITY_CLOCK.trim().toLowerCase()
+    : "time",
   appId: /^\d{15,25}$/.test(APPLICATION_ID) ? APPLICATION_ID : null,
   appName: process.env.ACTIVITY_NAME || null, // filled in from Discord if not set
   imageId: null, // filled in from the application's uploaded images
@@ -111,6 +114,25 @@ const activityConfig = {
     buttonFromEnv(2, "Contact Admin", "https://discord.com/users/825998094067695616"),
   ],
 };
+// Second card with a self-moving level bar ("off" removes it).
+const CARD2_ON = !/^(off|false|0|no)$/i.test((process.env.CARD2 || "").trim());
+const CARD2_APP = (process.env.CARD2_APPLICATION_ID || "").trim();
+activityConfig.card2 = CARD2_ON
+  ? {
+      type: (process.env.CARD2_TYPE || "").trim().toLowerCase() === "watching" ? 3 : 2,
+      name: process.env.CARD2_NAME || "{channel}",
+      details: process.env.CARD2_DETAILS || "Voice level {level}",
+      state: process.env.CARD2_STATE || "New level every {level_hours}h in voice",
+      levelMs: Math.max(1, parseIntEnv(process.env.LEVEL_HOURS, 24)) * 3600000,
+      appId: /^\d{15,25}$/.test(CARD2_APP) ? CARD2_APP : null,
+    }
+  : null;
+if (activityConfig.card2) {
+  const hours = String(activityConfig.card2.levelMs / 3600000);
+  for (const key of ["name", "details", "state"]) {
+    activityConfig.card2[key] = activityConfig.card2[key].replace(/\{level_hours\}/g, hours);
+  }
+}
 const ACTIVITY_IMAGE = process.env.ACTIVITY_IMAGE || "";
 // How often the shown time is sent to Discord: once a minute. Faster makes the
 // account look automated; 5s is the floor (Discord allows 5 status changes per
@@ -118,10 +140,11 @@ const ACTIVITY_IMAGE = process.env.ACTIVITY_IMAGE || "";
 const ACTIVITY_REFRESH = Math.max(5000, parseIntEnv(process.env.ACTIVITY_REFRESH, 60000));
 // Seconds in the text only make sense when the text is refreshed often.
 const TEXT_SECONDS = ACTIVITY_REFRESH < 30000;
-// Card clock counts down to this moment instead of counting up (see !countdown).
-const COUNTDOWN_OFFSET = /^[+-]\d{2}:\d{2}$/.test((process.env.COUNTDOWN_OFFSET || "").trim())
-  ? process.env.COUNTDOWN_OFFSET.trim()
-  : "+05:30"; // India time
+// Time zone for the card's clock and for countdown dates written without one.
+const OFFSET_ENV = (process.env.TIME_OFFSET || process.env.COUNTDOWN_OFFSET || "").trim();
+const COUNTDOWN_OFFSET = /^[+-]\d{2}:\d{2}$/.test(OFFSET_ENV) ? OFFSET_ENV : "+05:30"; // India time
+const OFFSET_MS =
+  (COUNTDOWN_OFFSET[0] === "-" ? -1 : 1) * (+COUNTDOWN_OFFSET.slice(1, 3) * 60 + +COUNTDOWN_OFFSET.slice(4, 6)) * 60000;
 // Alerts to a Discord channel webhook (posted by this server, not by the account).
 const ALERT_OFFLINE_AFTER = parseIntEnv(process.env.ALERT_OFFLINE_AFTER, 60000);
 const ALERT_VC_AFTER = parseIntEnv(process.env.ALERT_VC_AFTER, 120000);
@@ -546,10 +569,14 @@ function countdownEnd() {
   return end && end > Date.now() ? end : null;
 }
 
+// Local midnight of the current day. A count-up clock started there reads the
+// time of day, and needs a new start only once a day.
+function dayStart(now = Date.now()) {
+  return Math.floor((now + OFFSET_MS) / 86400000) * 86400000 - OFFSET_MS;
+}
+
 function whenText(ms) {
-  const sign = COUNTDOWN_OFFSET[0] === "-" ? -1 : 1;
-  const shift = sign * (+COUNTDOWN_OFFSET.slice(1, 3) * 60 + +COUNTDOWN_OFFSET.slice(4, 6)) * 60000;
-  const iso = new Date(ms + shift).toISOString();
+  const iso = new Date(ms + OFFSET_MS).toISOString();
   const [y, mo, d] = iso.slice(0, 10).split("-");
   return `${d}-${mo}-${y} ${iso.slice(11, 16)} (UTC${COUNTDOWN_OFFSET})`;
 }
@@ -571,6 +598,8 @@ function activityEnabled() {
 
 let presenceDebounce = null;
 let cardSent = false; // true when the last update included the card
+let cardsSent = 0; // how many cards (everything except the status line) were sent
+let cardCountWarned = null;
 let lastSessionsLine = null;
 let privacyWarned = false;
 
@@ -593,6 +622,13 @@ function onSessions(sessions) {
       "⚠️ Discord kept the status line but dropped the card. Check that APPLICATION_ID is the " +
         "Application ID from the Developer Portal (General Information page), copied in full."
     );
+  } else if (own) {
+    const shown = (own.activities || []).filter((a) => a.type !== 4).length;
+    const note = `${shown}/${cardsSent}`;
+    if (shown < cardsSent && cardCountWarned !== note) {
+      cardCountWarned = note;
+      log(`⚠️ Discord is showing ${shown} of the ${cardsSent} cards that were sent. Set CARD2=off to go back to one card.`);
+    }
   }
 }
 
@@ -637,6 +673,8 @@ function refreshPresence() {
           total: formatStopwatch(vcTimer.totalMs(), TEXT_SECONDS),
           stay: formatStopwatch(vcTimer.stayMs(), TEXT_SECONDS),
           countdownEnd: countdownEnd(),
+          dayStart: dayStart(),
+          totalMs: vcTimer.totalMs(),
           stayStart: vcTimer.stayStart(),
           totalStart: vcTimer.totalStart(),
         })
@@ -648,7 +686,8 @@ function refreshPresence() {
 
     // Log when the kind of activity changes, not on every time tick.
     cardSent = activities.some((a) => a.application_id);
-    const shape = `${activities.map((a) => a.type).join(",")}|${inVoice}|${cfg.customText}|${cfg.appName}|${cfg.imageId}|${countdownEnd() || ""}`;
+    cardsSent = activities.filter((a) => a.type !== 4).length;
+    const shape = `${activities.map((a) => a.type).join(",")}|${inVoice}|${cfg.customText}|${cfg.appName}|${cfg.imageId}|${countdownEnd() || ""}|${activities.map((a) => (a.type === 4 ? "" : a.details)).join("/")}`;
     if (shape !== lastPresenceShape || DEBUG) {
       lastPresenceShape = shape;
       if (!activities.length) {
@@ -658,7 +697,11 @@ function refreshPresence() {
           a.type === 4
             ? `custom status "${a.emoji ? `${a.emoji.name} ` : ""}${a.state}"`
             : `card "${CARD_WORDING[a.type]} ${a.name}" — ${a.details} / ${a.state}${a.assets ? " (with image)" : " (no image)"}` +
-              (a.timestamps && a.timestamps.end ? `, counting down to ${whenText(a.timestamps.end)}` : "")
+              (a.timestamps && a.timestamps.start && a.timestamps.end
+                ? `, bar ${formatGap(a.timestamps.end - a.timestamps.start)} long`
+                : a.timestamps && a.timestamps.end
+                  ? `, counting down to ${whenText(a.timestamps.end)}`
+                  : "")
         );
         log(`🎭 Activity set (status: ${STATUS}): ${parts.join(" + ")}`);
       }
