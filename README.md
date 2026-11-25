@@ -59,7 +59,9 @@ The app counts how long the account has been in voice and keeps a running total.
 By default the account shows two things:
 
 - a **custom status**: `🎧 In VC for 2d 3h`
-- a **Rich Presence card** from your Discord application (`APPLICATION_ID`): `Competing in <app name>`, `learning MLL <channel>`, `Total VC time: …`, and a live elapsed clock for the current stay
+- a **Rich Presence card** from your Discord application (`APPLICATION_ID`): `Competing in <app name>`, `learning MLL <channel>`, `Total VC time: …`, and a clock that counts your total VC time, ticking every second
+
+The clock is drawn by Discord on the viewer's screen, so it moves every second without the app sending anything. The text lines are refreshed once a minute; Discord limits status changes to a few per 20 seconds, so text cannot change every second.
 
 The card's picture is the first image uploaded to the application (Developer Portal → your app → Rich Presence → Art Assets). Set `ACTIVITY_IMAGE` to an asset name to pick another. With no images uploaded the card shows without a picture.
 
@@ -89,7 +91,8 @@ Text can use `{total}` (lifetime VC time), `{stay}` (current stay), `{channel}` 
 | `ACTIVITY_STATE` | no | `Total VC time: {total}` | Second line of the card |
 | `ACTIVITY_IMAGE` | no | first image | Name of the application image to show |
 | `ACTIVITY_NAME` | no | app's name | Title of the card |
-| `ACTIVITY_REFRESH` | no | `300000` | Ms between updates of the shown time |
+| `ACTIVITY_CLOCK` | no | `total` | What the card's ticking clock counts: `total` (lifetime VC time) or `stay` (current stay) |
+| `ACTIVITY_REFRESH` | no | `60000` | Ms between updates of the time shown as text |
 | `DATA_DIR` | no | Railway volume, else `./data` | Folder for `vc-timer.json` |
 | `DEBUG` | no | `false` | Log every gateway message (noisy) |
 

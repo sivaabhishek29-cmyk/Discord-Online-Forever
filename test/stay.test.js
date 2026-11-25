@@ -189,7 +189,8 @@ const joinMsg = (channel) => ({ op: 4, d: { guild_id: GUILD, channel_id: channel
   assert.strictEqual(card.details, "learning MLL vc-444");
   assert.strictEqual(card.state, "Total VC time: 2d 3h");
   assert.deepStrictEqual(card.assets, { large_image: "777", large_text: "My App" }, "card uses the first uploaded image");
-  assert(card.timestamps && card.timestamps.start <= Date.now(), "card shows a live elapsed clock while in VC");
+  const clockReads = Date.now() - card.timestamps.start;
+  assert(Math.abs(clockReads - (51 * 60 + 5) * 60000) < 5000, "card clock ticks from the saved lifetime total (2d 3h 5m)");
 
   // 13. !timer and !activity
   say("!timer");

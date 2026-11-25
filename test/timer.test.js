@@ -26,14 +26,19 @@ t.start();
 clock += 2 * HOUR;
 assert.strictEqual(t.totalMs(), 2 * HOUR);
 assert.strictEqual(t.stayMs(), 2 * HOUR);
+assert.strictEqual(t.totalStart(), clock - 2 * HOUR, "clock start reads the total");
 t.stop();
 clock += 10 * HOUR; // out of VC: not counted
 assert.strictEqual(t.totalMs(), 2 * HOUR);
+assert.strictEqual(t.totalStart(), null, "no clock while out of VC");
 t.set("customText", "hello");
 
 // "restart": a new timer on the same file carries the total and settings over
 t.start();
+assert.strictEqual(t.totalStart(), clock - 2 * HOUR, "a new stay continues the same total");
+const steady = t.totalStart();
 clock += 30 * MIN;
+assert.strictEqual(t.totalStart(), steady, "clock start does not move during a stay");
 t.save(); // periodic save while still in VC, then the process dies
 t = createVcTimer({ file, now });
 assert.strictEqual(t.loaded, true);
@@ -71,6 +76,8 @@ assert.deepStrictEqual(buildActivities(cfg, state), [
   { name: "Custom Status", type: 4, state: "In VC for 3h 1m" },
   { name: "Voice Chat", type: 5, application_id: "42", details: "Chilling in General", state: "Total VC time: 3h 1m", timestamps: { start: 123 } },
 ]);
+assert.deepStrictEqual(buildActivities(cfg, { ...state, totalStart: 7 })[1].timestamps, { start: 7 }, "clock counts the lifetime total");
+assert.deepStrictEqual(buildActivities({ ...cfg, clock: "stay" }, { ...state, totalStart: 7 })[1].timestamps, { start: 123 }, "or only the current stay");
 assert.deepStrictEqual(buildActivities({ ...cfg, mode: "custom" }, state).map((a) => a.type), [4]);
 assert.deepStrictEqual(buildActivities({ ...cfg, mode: "rich" }, state).map((a) => a.type), [5], "competing by default");
 assert.deepStrictEqual(buildActivities({ ...cfg, mode: "rich", cardType: 3 }, state).map((a) => a.type), [3]);
