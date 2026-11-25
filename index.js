@@ -38,8 +38,9 @@ function parseIntEnv(value, fallback) {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-// Stay muted/deafened so the account sits silently in VC.
-const SELF_MUTE = parseBool(process.env.SELF_MUTE, true);
+// How the account shows in VC: mic on (not muted), deafened.
+// No audio is ever sent or received either way — no voice connection is opened.
+const SELF_MUTE = parseBool(process.env.SELF_MUTE, false);
 const SELF_DEAF = parseBool(
   process.env.SELF_DEAF ?? process.env.SELF_DEAFEN,
   true
@@ -153,7 +154,7 @@ function ensureMuteDeaf() {
   if (selfVoice.selfMute === SELF_MUTE && selfVoice.selfDeaf === SELF_DEAF) return;
   if (Date.now() - lastMuteFix < 5000) return; // don't spam the gateway
   lastMuteFix = Date.now();
-  log(`🔇 Re-applying mute=${SELF_MUTE} deaf=${SELF_DEAF}`);
+  log(`🎙️ Re-applying mute=${SELF_MUTE} deaf=${SELF_DEAF}`);
   sendVoiceState(selfVoice.guildId, selfVoice.channelId);
 }
 

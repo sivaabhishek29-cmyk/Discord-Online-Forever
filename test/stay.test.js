@@ -63,11 +63,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const voice = (channel, session = "bot-session", extra = {}) =>
   client.emit("rawWS", {
     op: 0, t: "VOICE_STATE_UPDATE",
-    d: { user_id: ME, guild_id: GUILD, channel_id: channel, session_id: session, self_mute: true, self_deaf: true, ...extra },
+    d: { user_id: ME, guild_id: GUILD, channel_id: channel, session_id: session, self_mute: false, self_deaf: true, ...extra },
   }, 0);
 const say = (content) => client.emit("messageCreate", { content, author: { id: ME }, channel: { id: "dm" } });
 const last = () => sent[sent.length - 1];
-const joinMsg = (channel) => ({ op: 4, d: { guild_id: GUILD, channel_id: channel, self_mute: true, self_deaf: true } });
+const joinMsg = (channel) => ({ op: 4, d: { guild_id: GUILD, channel_id: channel, self_mute: false, self_deaf: true } });
 
 (async () => {
   // 0. a failed gateway lookup is logged and falls back instead of hanging silently
@@ -75,7 +75,7 @@ const joinMsg = (channel) => ({ op: 4, d: { guild_id: GUILD, channel_id: channel
   assert.deepStrictEqual(client.gateway, { url: "wss://gateway.discord.gg" }, "falls back to default gateway");
   assert(logs.some((l) => l.includes("REST blocked")), "logs why the gateway lookup failed");
 
-  // 1. joins on ready, muted + deafened, through the gateway only
+  // 1. joins on ready, mic on + deafened, through the gateway only
   client.ready = true;
   client.emit("ready");
   await sleep(10);
@@ -104,8 +104,8 @@ const joinMsg = (channel) => ({ op: 4, d: { guild_id: GUILD, channel_id: channel
   voice(VC);
   await sleep(10);
 
-  // 5. someone un-mutes us -> mute/deaf re-applied
-  voice(VC, "bot-session", { self_mute: false });
+  // 5. mute state gets changed -> mic on / deaf re-applied
+  voice(VC, "bot-session", { self_mute: true });
   await sleep(20);
   assert.strictEqual(sent.length, 4, "re-applies mute/deaf");
   voice(VC);

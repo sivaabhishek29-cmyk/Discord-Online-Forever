@@ -94,13 +94,13 @@ const until = async (check, what, ms = 3000) => {
   await until(() => socket.sent.some((p) => p.op === 4), "voice join to be sent");
   assert.deepStrictEqual(
     socket.sent.find((p) => p.op === 4).d,
-    { guild_id: GUILD, channel_id: VC, self_mute: true, self_deaf: true },
-    "joins the target VC muted + deafened"
+    { guild_id: GUILD, channel_id: VC, self_mute: false, self_deaf: true },
+    "joins the target VC with mic on + deafened"
   );
 
   socket.receive({
     op: 0, s: 2, t: "VOICE_STATE_UPDATE",
-    d: { user_id: ME, guild_id: GUILD, channel_id: VC, session_id: "gateway-session", self_mute: true, self_deaf: true, mute: false, deaf: false },
+    d: { user_id: ME, guild_id: GUILD, channel_id: VC, session_id: "gateway-session", self_mute: false, self_deaf: true, mute: false, deaf: false },
   });
   await until(() => logs.some((l) => l.includes("✅ Joined #Lounge")), "join to be confirmed");
   assert(!logs.some((l) => l.includes(TOKEN)), "token never appears in logs");
