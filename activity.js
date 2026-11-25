@@ -86,7 +86,7 @@ function buildActivities(cfg, state) {
       type: cfg.cardType in CARD_WORDING ? cfg.cardType : 5,
       application_id: cfg.appId,
       details: clamp(state.inVoice ? fill(cfg.details, values) : fill(cfg.detailsIdle, values)),
-      state: clamp(fill(cfg.state, values)),
+      state: clamp(state.inVoice ? fill(cfg.state, values) : fill(cfg.stateIdle || cfg.state, values)),
     };
     // Discord draws a clock from this that ticks every second on the viewer's
     // screen, with no updates from us. (Text can't do that: Discord only allows

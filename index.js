@@ -2,7 +2,7 @@ const Eris = require("eris");
 const keepAlive = require("./keep_alive.js");
 const path = require("path");
 const { applyUserAccountPatch, forceShardReady } = require("./eris_user_patch.js");
-const { createVcTimer, formatDuration } = require("./vc_timer.js");
+const { createVcTimer, formatDuration, formatStopwatch } = require("./vc_timer.js");
 const {
   buildActivities,
   fetchApplication,
@@ -92,12 +92,15 @@ const activityConfig = {
   customText: process.env.CUSTOM_STATUS || DEFAULT_CUSTOM_TEXT,
   customTextIdle: "Total VC time: {total}",
   customEmoji: process.env.CUSTOM_STATUS_EMOJI === undefined ? "🎧" : process.env.CUSTOM_STATUS_EMOJI,
-  details: process.env.ACTIVITY_DETAILS || "learning MLL {channel}",
+  details: process.env.ACTIVITY_DETAILS || "Chilling in {channel}",
   detailsIdle: "Not in voice right now",
-  state: process.env.ACTIVITY_STATE || "Total VC time: {total}",
+  state: process.env.ACTIVITY_STATE || "In VC for {total}",
+  stateIdle: "Total VC time: {total}",
 };
 const ACTIVITY_IMAGE = process.env.ACTIVITY_IMAGE || "";
-const ACTIVITY_REFRESH = parseIntEnv(process.env.ACTIVITY_REFRESH, 60000);
+// How often the shown time is sent to Discord. Discord allows 5 status changes
+// per 20 seconds and disconnects accounts that go over, so 5s is the floor.
+const ACTIVITY_REFRESH = Math.max(5000, parseIntEnv(process.env.ACTIVITY_REFRESH, 5000));
 const PRESENCE_DEBOUNCE = parseIntEnv(process.env.PRESENCE_DEBOUNCE, 2000);
 
 // --- VC timer storage -------------------------------------------------------
@@ -464,7 +467,7 @@ function onSessions(sessions) {
   if (!lines.length) return;
   const line = lines.join(" | ");
   // The shown time changes constantly; only log when the make-up changes.
-  const key = line.replace(/\d+[dhm]( \d+[hm])?/g, "#");
+  const key = line.replace(/\d+/g, "#");
   if (key === lastSessionsLine && !DEBUG) return;
   lastSessionsLine = key;
   log(`👁️ Discord reports this account as → ${line}`);
@@ -516,8 +519,8 @@ function refreshPresence() {
           inVoice,
           channelName: channel ? channel.name : null,
           serverName: channel && channel.guild ? channel.guild.name : null,
-          total: formatDuration(vcTimer.totalMs()),
-          stay: formatDuration(vcTimer.stayMs()),
+          total: formatStopwatch(vcTimer.totalMs()),
+          stay: formatStopwatch(vcTimer.stayMs()),
           stayStart: vcTimer.stayStart(),
           totalStart: vcTimer.totalStart(),
         })
