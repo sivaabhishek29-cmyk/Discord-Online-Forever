@@ -75,6 +75,7 @@ Object.assign(process.env, {
   WATCHDOG_INTERVAL: "150",
   JOIN_CONFIRM_TIMEOUT: "120",
   PRESENCE_DEBOUNCE: "20",
+  PET: "off",
   APPLICATION_ID: APP_ID,
   DATA_DIR,
 });

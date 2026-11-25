@@ -79,6 +79,7 @@ function buildActivities(cfg, state) {
     stay: state.stay,
     channel: state.channelName || "voice",
     server: state.serverName || "",
+    pet: state.pet || "",
   };
   const activities = [];
 
