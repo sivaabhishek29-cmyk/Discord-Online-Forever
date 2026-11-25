@@ -183,7 +183,7 @@ const joinMsg = (channel) => ({ op: 4, d: { guild_id: GUILD, channel_id: channel
   assert.strictEqual(shown.status, "online");
   const custom = shown.activities.find((a) => a.type === 4);
   const card = shown.activities.find((a) => a.type === 5);
-  const STOPWATCH = /^In VC for 02d-03h-05m-0\ds$/; // saved total 2d 3h 5m, plus the seconds of this test
+  const STOPWATCH = /^In VC for 02d-03h-05m$/; // saved total 2d 3h 5m; no seconds at the once-a-minute refresh
   assert(STOPWATCH.test(custom.state), custom.state);
   assert.deepStrictEqual({ ...custom, state: "" }, { name: "Custom Status", type: 4, state: "", emoji: { name: "🎧" } });
   assert.strictEqual(card.application_id, APP_ID);
@@ -216,8 +216,8 @@ const joinMsg = (channel) => ({ op: 4, d: { guild_id: GUILD, channel_id: channel
   voice(null, "bot-session-2");
   await sleep(80);
   const idle = presences[presences.length - 1].activities;
-  assert(/^Total VC time: 02d-03h-05m-0\ds$/.test(idle.find((a) => a.type === 4).state));
-  assert(/^Total VC time: 02d-03h-05m-0\ds$/.test(idle.find((a) => a.type === 5).state));
+  assert(/^Total VC time: 02d-03h-05m$/.test(idle.find((a) => a.type === 4).state));
+  assert(/^Total VC time: 02d-03h-05m$/.test(idle.find((a) => a.type === 5).state));
   assert.strictEqual(idle.find((a) => a.type === 5).details, "Not in voice right now");
   assert(!idle.find((a) => a.type === 5).timestamps, "no elapsed clock when not in VC");
   const saved = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "vc-timer.json"), "utf8"));

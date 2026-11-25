@@ -58,16 +58,35 @@ The app counts how long the account has been in voice and keeps a running total.
 
 By default the account shows two things:
 
-- a **custom status**: `🎧 In VC for 09d-14h-47m-54s`
+- a **custom status**: `🎧 In VC for 09d-14h-47m`
 - a **Rich Presence card** from your Discord application (`APPLICATION_ID`): `Competing in <app name>`, `Chilling with Alya 🩷🎀`, `dev Lovelycrxshx ♠`, a clock that counts your total VC time, ticking every second, and two buttons (`Self-run acc, not a real user`, `Contact Admin`) that open a Discord profile
 
-The clock is drawn by Discord on the viewer's screen, so it moves every second without the app sending anything. The custom status is re-sent every 5 seconds with the current days, hours, minutes and seconds. That is as fast as Discord permits: it allows 5 status changes per 20 seconds and disconnects accounts that go over.
+The clock is drawn by Discord on the viewer's screen, so it moves every second without the app sending anything. The custom status is re-sent once a minute with the current days, hours and minutes. `ACTIVITY_REFRESH` can lower that to 5000 (every 5 seconds, with seconds shown: `09d-14h-47m-54s`), which is the fastest Discord permits, but constant status changes make the account look automated.
+
+### Countdown
+
+The card's clock can count **down** to a date and time instead of counting up. From the account itself send `!countdown 31-12-2026 23:59` (India time unless you add a zone such as `+00:00`), or set the `COUNTDOWN_TO` variable. `!countdown` shows what is running, `!countdown off` goes back to counting up. When the moment passes, the clock counts up again by itself.
 
 The card's picture is the first image uploaded to the application (Developer Portal → your app → Rich Presence → Art Assets). Set `ACTIVITY_IMAGE` to an asset name to pick another. With no images uploaded the card shows without a picture.
 
 The card can have up to two link buttons (`BUTTON1_LABEL` + `BUTTON1_URL`, `BUTTON2_LABEL` + `BUTTON2_URL`). Discord does not show your own buttons to you: check them from another account. A link to a Discord profile is `https://discord.com/users/<user id>`.
 
 Text can use `{total}` (lifetime VC time), `{stay}` (current stay), `{channel}` and `{server}`.
+
+## Alerts
+
+Set `ALERT_WEBHOOK_URL` to a Discord channel webhook link and that channel gets a short message when the account:
+
+- comes online after a start or redeploy (`🟢 Online`)
+- is kicked or disconnected from the voice channel, or moved to another one, and again when it is back (`⚠️ Removed from #General…`, `✅ Back in #General after 6s`)
+- has been outside the voice channel for 2 minutes
+- has been offline for 1 minute, and again when it returns (`🔴 Offline…`, `🟢 Back online after 3m 5s`)
+- has its voice taken over by another device
+- has its token rejected (`❌ Discord rejected the token…`)
+
+The messages are posted by the server straight to the webhook. The account's token is not used and the account itself sends nothing. At most 8 alerts go out per 10 minutes.
+
+To get the link: in your own server, open the channel's settings → **Integrations** → **Webhooks** → **New Webhook** → **Copy Webhook URL**. Put it only in the host's variables: anyone who has the link can post in that channel, so never commit it or share it.
 
 ## Config (env vars / secrets)
 
@@ -98,7 +117,12 @@ Text can use `{total}` (lifetime VC time), `{stay}` (current stay), `{channel}` 
 | `ACTIVITY_IMAGE` | no | first image | Name of the application image to show |
 | `ACTIVITY_NAME` | no | app's name | Title of the card |
 | `ACTIVITY_CLOCK` | no | `total` | What the card's ticking clock counts: `total` (lifetime VC time) or `stay` (current stay) |
-| `ACTIVITY_REFRESH` | no | `5000` | Ms between updates of the time shown as text (5000 is the minimum) |
+| `ACTIVITY_REFRESH` | no | `60000` | Ms between updates of the time shown as text (5000 is the minimum; below 30000 the text also shows seconds) |
+| `COUNTDOWN_TO` | no | — | Date and time the card's clock counts down to, e.g. `31-12-2026 23:59` |
+| `COUNTDOWN_OFFSET` | no | `+05:30` | Time zone used for countdown dates written without one |
+| `ALERT_WEBHOOK_URL` | no | — | Discord channel webhook link for alerts (see Alerts). Keep it secret |
+| `ALERT_OFFLINE_AFTER` | no | `60000` | Ms offline before the "offline" alert |
+| `ALERT_VC_AFTER` | no | `120000` | Ms outside the voice channel before the "not in channel" alert |
 | `DATA_DIR` | no | Railway volume, else `./data` | Folder for `vc-timer.json` |
 | `DEBUG` | no | `false` | Log every gateway message (noisy) |
 
@@ -116,6 +140,7 @@ Send these from your own account (DM or any text channel). Only your own message
 - `!status` — show current VC / target / connection state
 - `!vcs` — list all voice channels with IDs
 - `!timer` — time in VC for this stay and in total
+- `!countdown 31-12-2026 23:59` / `!countdown` / `!countdown off` — make the card's clock count down, show it, or stop it
 - `!activity <text>` — change the custom status text (kept across restarts)
 - `!activity off` / `!activity on` / `!activity reset` — hide it, show it, or restore the default text
 - `!help` — show help

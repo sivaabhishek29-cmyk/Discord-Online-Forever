@@ -3,8 +3,10 @@ const keepAlive = require("./keep_alive.js");
 const path = require("path");
 const { applyUserAccountPatch, forceShardReady } = require("./eris_user_patch.js");
 const { createVcTimer, formatDuration, formatStopwatch } = require("./vc_timer.js");
+const { createAlerts, formatGap } = require("./alerts.js");
 const {
   buildActivities,
+  parseWhen,
   fetchApplication,
   pickAsset,
   describeSessions,
@@ -110,9 +112,19 @@ const activityConfig = {
   ],
 };
 const ACTIVITY_IMAGE = process.env.ACTIVITY_IMAGE || "";
-// How often the shown time is sent to Discord. Discord allows 5 status changes
-// per 20 seconds and disconnects accounts that go over, so 5s is the floor.
-const ACTIVITY_REFRESH = Math.max(5000, parseIntEnv(process.env.ACTIVITY_REFRESH, 5000));
+// How often the shown time is sent to Discord: once a minute. Faster makes the
+// account look automated; 5s is the floor (Discord allows 5 status changes per
+// 20 seconds and disconnects accounts that go over).
+const ACTIVITY_REFRESH = Math.max(5000, parseIntEnv(process.env.ACTIVITY_REFRESH, 60000));
+// Seconds in the text only make sense when the text is refreshed often.
+const TEXT_SECONDS = ACTIVITY_REFRESH < 30000;
+// Card clock counts down to this moment instead of counting up (see !countdown).
+const COUNTDOWN_OFFSET = /^[+-]\d{2}:\d{2}$/.test((process.env.COUNTDOWN_OFFSET || "").trim())
+  ? process.env.COUNTDOWN_OFFSET.trim()
+  : "+05:30"; // India time
+// Alerts to a Discord channel webhook (posted by this server, not by the account).
+const ALERT_OFFLINE_AFTER = parseIntEnv(process.env.ALERT_OFFLINE_AFTER, 60000);
+const ALERT_VC_AFTER = parseIntEnv(process.env.ALERT_VC_AFTER, 120000);
 const PRESENCE_DEBOUNCE = parseIntEnv(process.env.PRESENCE_DEBOUNCE, 2000);
 
 // --- VC timer storage -------------------------------------------------------
@@ -147,6 +159,14 @@ let gatewaySessionId = null; // changes only when Discord gives us a brand-new s
 let knownSessionIds = null; // the account's live sessions, as last reported by Discord
 let lastReassert = 0;
 let vcTimer = null; // created in main()
+let alerts = null; // created in main()
+let startAlertSent = false;
+let tokenAlertSent = false;
+let offlineSince = 0;
+let offlineAlerted = false;
+let voiceLostAt = 0; // when we were put out of the target VC (0 = not out)
+let outOfVoiceSince = 0;
+let voiceStuckAlerted = false;
 let lastPresence = null; // JSON of the last activity list sent
 let lastPresenceShape = null;
 let appLookupDone = false;
@@ -266,6 +286,10 @@ function onSelfVoiceState(d) {
     updateStatus();
     if (previous) {
       log(`⚠️ No longer in ${describeChannel(previous.channelId)} (kicked, disconnected or left)`);
+      if (!intentionalLeave) {
+        if (!voiceLostAt) voiceLostAt = Date.now();
+        sendAlert(`⚠️ Removed from ${channelLabel(previous.channelId)} (kicked or disconnected). Rejoining…`);
+      }
     }
     scheduleRejoin("left voice channel");
     return;
@@ -293,6 +317,7 @@ function onSelfVoiceState(d) {
         `📱 Voice taken over by another device (now in ${describeChannel(d.channel_id)}). ` +
           "Not fighting it — will rejoin the target VC when that device leaves voice."
       );
+      sendAlert(`📱 Voice was taken over by another device (now in ${channelLabel(d.channel_id)}). Waiting for it to leave voice.`);
     }
     return;
   }
@@ -300,6 +325,8 @@ function onSelfVoiceState(d) {
   if (targetChannelId && d.channel_id !== targetChannelId) {
     if (!previous || previous.channelId !== d.channel_id) {
       log(`⚠️ Moved to ${describeChannel(d.channel_id)} — going back to target`);
+      if (!voiceLostAt) voiceLostAt = Date.now();
+      sendAlert(`⚠️ Moved to ${channelLabel(d.channel_id)}. Going back to ${channelLabel(targetChannelId)}…`);
     }
     scheduleRejoin("moved to another channel");
     return;
@@ -370,6 +397,8 @@ async function joinVoice(channelId = targetChannelId) {
       unconfirmedJoins = 0;
       lastReassert = Date.now();
       log(`✅ Joined ${describeChannel(channelId)} — staying here`);
+      if (voiceLostAt) sendAlert(`✅ Back in ${channelLabel(channelId)} after ${formatGap(Date.now() - voiceLostAt)}.`);
+      voiceLostAt = 0;
       lastMuteFix = 0;
       ensureMuteDeaf(); // puts the flags right if this attempt flipped one
       return true;
@@ -451,6 +480,80 @@ function startWatchdog() {
 // ---------------------------------------------------------------------------
 // VC timer + activity
 // ---------------------------------------------------------------------------
+// --- Alerts -----------------------------------------------------------------
+function channelLabel(channelId) {
+  const channel = bot && channelId ? bot.getChannel(channelId) : null;
+  return channel && channel.name ? `#${channel.name}` : `channel ${channelId}`;
+}
+
+function sendAlert(text) {
+  if (!alerts || !alerts.enabled) return;
+  safely("alert", () => alerts.send(text));
+}
+
+// Slow things (offline, stuck outside the channel) are noticed here; kicks and
+// moves raise their alert the moment Discord reports them.
+function alertTick() {
+  if (!alerts || !alerts.enabled || !bot) return;
+  const t = Date.now();
+  if (!bot.ready) {
+    if (!offlineSince) offlineSince = t;
+    if (fatalReason) {
+      if (!tokenAlertSent) {
+        tokenAlertSent = true;
+        sendAlert("❌ Discord rejected the token. Put a fresh token in the Railway `token` variable.");
+      }
+    } else if (!offlineAlerted && t - offlineSince >= ALERT_OFFLINE_AFTER) {
+      offlineAlerted = true;
+      sendAlert(
+        startAlertSent
+          ? `🔴 Offline for ${formatGap(t - offlineSince)}. Reconnecting…`
+          : `🔴 Still not logged in ${formatGap(t - offlineSince)} after starting. Still trying.`
+      );
+    }
+    return;
+  }
+
+  if (!startAlertSent) {
+    startAlertSent = true;
+    sendAlert("🟢 Online (the app has just started).");
+  } else if (offlineAlerted || tokenAlertSent) {
+    sendAlert(`🟢 Back online after ${formatGap(t - offlineSince)}.`);
+  }
+  offlineSince = 0;
+  offlineAlerted = false;
+  tokenAlertSent = false;
+
+  const wanted = targetChannelId && AUTO_REJOIN && !intentionalLeave && !heldByOtherDevice();
+  if (wanted && getSelfVoiceChannelId() !== targetChannelId) {
+    if (!outOfVoiceSince) outOfVoiceSince = t;
+    if (!voiceStuckAlerted && t - outOfVoiceSince >= ALERT_VC_AFTER) {
+      voiceStuckAlerted = true;
+      if (!voiceLostAt) voiceLostAt = outOfVoiceSince; // so "Back in" follows later
+      sendAlert(`⚠️ Not in ${channelLabel(targetChannelId)} for ${formatGap(t - outOfVoiceSince)}. Still trying to join.`);
+    }
+  } else {
+    outOfVoiceSince = 0;
+    voiceStuckAlerted = false;
+  }
+}
+
+// --- Countdown --------------------------------------------------------------
+// Returns the moment the card's clock counts down to, or null (count up).
+function countdownEnd() {
+  const saved = vcTimer.get("countdownTo"); // number = set from chat, 0 = switched off from chat
+  const end = Number.isFinite(saved) ? saved : parseWhen(process.env.COUNTDOWN_TO, COUNTDOWN_OFFSET);
+  return end && end > Date.now() ? end : null;
+}
+
+function whenText(ms) {
+  const sign = COUNTDOWN_OFFSET[0] === "-" ? -1 : 1;
+  const shift = sign * (+COUNTDOWN_OFFSET.slice(1, 3) * 60 + +COUNTDOWN_OFFSET.slice(4, 6)) * 60000;
+  const iso = new Date(ms + shift).toISOString();
+  const [y, mo, d] = iso.slice(0, 10).split("-");
+  return `${d}-${mo}-${y} ${iso.slice(11, 16)} (UTC${COUNTDOWN_OFFSET})`;
+}
+
 function inVoiceNow() {
   return !!(bot && bot.ready && selfVoice);
 }
@@ -531,8 +634,9 @@ function refreshPresence() {
           inVoice,
           channelName: channel ? channel.name : null,
           serverName: channel && channel.guild ? channel.guild.name : null,
-          total: formatStopwatch(vcTimer.totalMs()),
-          stay: formatStopwatch(vcTimer.stayMs()),
+          total: formatStopwatch(vcTimer.totalMs(), TEXT_SECONDS),
+          stay: formatStopwatch(vcTimer.stayMs(), TEXT_SECONDS),
+          countdownEnd: countdownEnd(),
           stayStart: vcTimer.stayStart(),
           totalStart: vcTimer.totalStart(),
         })
@@ -544,7 +648,7 @@ function refreshPresence() {
 
     // Log when the kind of activity changes, not on every time tick.
     cardSent = activities.some((a) => a.application_id);
-    const shape = `${activities.map((a) => a.type).join(",")}|${inVoice}|${cfg.customText}|${cfg.appName}|${cfg.imageId}`;
+    const shape = `${activities.map((a) => a.type).join(",")}|${inVoice}|${cfg.customText}|${cfg.appName}|${cfg.imageId}|${countdownEnd() || ""}`;
     if (shape !== lastPresenceShape || DEBUG) {
       lastPresenceShape = shape;
       if (!activities.length) {
@@ -553,7 +657,8 @@ function refreshPresence() {
         const parts = activities.map((a) =>
           a.type === 4
             ? `custom status "${a.emoji ? `${a.emoji.name} ` : ""}${a.state}"`
-            : `card "${CARD_WORDING[a.type]} ${a.name}" — ${a.details} / ${a.state}${a.assets ? " (with image)" : " (no image)"}`
+            : `card "${CARD_WORDING[a.type]} ${a.name}" — ${a.details} / ${a.state}${a.assets ? " (with image)" : " (no image)"}` +
+              (a.timestamps && a.timestamps.end ? `, counting down to ${whenText(a.timestamps.end)}` : "")
         );
         log(`🎭 Activity set (status: ${STATUS}): ${parts.join(" + ")}`);
       }
@@ -632,6 +737,7 @@ async function handleCommand(msg) {
         `${COMMAND_PREFIX}timer — time spent in VC (this stay + total)`,
         `${COMMAND_PREFIX}activity <text> — change the custom status ({total}, {stay}, {channel} are filled in)`,
         `${COMMAND_PREFIX}activity off | on | reset — hide / show the activity, or restore the default text`,
+        `${COMMAND_PREFIX}countdown 31-12-2026 23:59 — the card's clock counts down to that moment; ${COMMAND_PREFIX}countdown off — count up again`,
         `${COMMAND_PREFIX}help — this message`,
       ].join("\n")
     );
@@ -641,6 +747,39 @@ async function handleCommand(msg) {
   if (cmd === "vcs" || cmd === "vc" || cmd === "channels") {
     const lines = listVoiceChannels();
     await reply(msg, lines.length ? `Voice channels:\n${lines.join("\n")}` : "No voice channels found.");
+    return;
+  }
+
+  if (cmd === "countdown") {
+    const word = arg.toLowerCase();
+    if (!arg) {
+      const end = countdownEnd();
+      await reply(
+        msg,
+        end
+          ? `Counting down to ${whenText(end)} — ${formatGap(end - Date.now())} left.`
+          : `No countdown running. Set one with: ${COMMAND_PREFIX}countdown 31-12-2026 23:59`
+      );
+    } else if (word === "off" || word === "stop") {
+      vcTimer.set("countdownTo", 0);
+      refreshPresence();
+      await reply(msg, "Countdown off. The card's clock counts up again.");
+    } else if (word === "reset") {
+      vcTimer.set("countdownTo", null);
+      refreshPresence();
+      await reply(msg, "Countdown reset to the COUNTDOWN_TO variable.");
+    } else {
+      const end = parseWhen(arg, COUNTDOWN_OFFSET);
+      if (!end) {
+        await reply(msg, `I could not read that date. Write it like: ${COMMAND_PREFIX}countdown 31-12-2026 23:59`);
+      } else if (end <= Date.now()) {
+        await reply(msg, `${whenText(end)} is already in the past.`);
+      } else {
+        vcTimer.set("countdownTo", end);
+        refreshPresence();
+        await reply(msg, `Counting down to ${whenText(end)} — ${formatGap(end - Date.now())} left.`);
+      }
+    }
     return;
   }
 
@@ -876,6 +1015,22 @@ function main() {
       (activityConfig.appId ? `, application ${activityConfig.appId}` : ", no valid APPLICATION_ID (card disabled)")
   );
 
+  if (process.env.COUNTDOWN_TO && !parseWhen(process.env.COUNTDOWN_TO, COUNTDOWN_OFFSET)) {
+    log("⚠️ COUNTDOWN_TO could not be read as a date. Write it like 31-12-2026 23:59 — counting up instead.");
+  } else if (countdownEnd()) {
+    log(`⏳ Card clock counts down to ${whenText(countdownEnd())}`);
+  }
+
+  alerts = createAlerts({
+    url: process.env.ALERT_WEBHOOK_URL,
+    name: () => (bot && bot.user && bot.user.username) || "Account",
+    log,
+  });
+  if (alerts.enabled) log("🔔 Alerts: on (posted to your channel webhook, not by the account)");
+  else if (process.env.ALERT_WEBHOOK_URL) {
+    log("⚠️ ALERT_WEBHOOK_URL is not a Discord webhook link (https://discord.com/api/webhooks/…) — alerts are off.");
+  } else log("🔕 Alerts: off (set ALERT_WEBHOOK_URL to switch them on)");
+
   // Without this a user account logs in but Eris never reports "ready".
   applyUserAccountPatch();
 
@@ -1044,6 +1199,11 @@ function main() {
     });
   }, ACTIVITY_REFRESH);
   if (presenceTick.unref) presenceTick.unref();
+  const alertTimer = setInterval(
+    () => safely("alert", alertTick),
+    Math.min(10000, Math.max(100, Math.floor(Math.min(ALERT_OFFLINE_AFTER, ALERT_VC_AFTER) / 4)))
+  );
+  if (alertTimer.unref) alertTimer.unref();
 
   log("🚀 Connecting to Discord...");
 

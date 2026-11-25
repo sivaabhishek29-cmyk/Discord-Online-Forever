@@ -118,7 +118,7 @@ const until = async (check, what, ms = 3000) => {
   const presence = socket.sent.filter((p) => p.op === 3).pop().d;
   assert.strictEqual(presence.status, "online");
   assert.deepStrictEqual(presence.activities.map((a) => a.type), [4, 5], "custom status + 'Competing in' card");
-  assert(/^In VC for 00d-00h-00m-0\ds$/.test(presence.activities[0].state), presence.activities[0].state);
+  assert(/^In VC for 00d-00h-00m$/.test(presence.activities[0].state), presence.activities[0].state);
   assert.strictEqual(presence.activities[1].name, "Voice Chat", "falls back to a default name when the lookup fails");
   assert(!presence.activities[1].assets, "no image when the lookup fails");
 
