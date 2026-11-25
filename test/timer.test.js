@@ -3,7 +3,7 @@ const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { createVcTimer, formatDuration } = require("../vc_timer.js");
+const { createVcTimer, formatDuration, formatStopwatch } = require("../vc_timer.js");
 const { buildActivities, pickAsset, fill, describeSessions } = require("../activity.js");
 
 const MIN = 60000;
@@ -18,6 +18,9 @@ assert.strictEqual(formatDuration(0), "0m");
 assert.strictEqual(formatDuration(59 * MIN + 59000), "59m");
 assert.strictEqual(formatDuration(5 * HOUR + 12 * MIN), "5h 12m");
 assert.strictEqual(formatDuration(52 * HOUR + 30 * MIN), "2d 4h");
+assert.strictEqual(formatStopwatch(0), "00d-00h-00m-00s");
+assert.strictEqual(formatStopwatch(((9 * 24 + 14) * 60 + 47) * MIN + 54999), "09d-14h-47m-54s");
+assert.strictEqual(formatStopwatch(123 * 24 * HOUR + 1000), "123d-00h-00m-01s");
 
 // counts only between start and stop
 let t = createVcTimer({ file, now });

@@ -13,6 +13,17 @@ function formatDuration(ms) {
   return `${m}m`;
 }
 
+// Stopwatch style: 09d-14h-47m-54s
+function formatStopwatch(ms) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const pad = (n) => String(n).padStart(2, "0");
+  const d = Math.floor(totalSeconds / 86400);
+  const h = Math.floor((totalSeconds % 86400) / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  return `${pad(d)}d-${pad(h)}h-${pad(m)}m-${pad(s)}s`;
+}
+
 function createVcTimer({ file, now = Date.now, onError = () => {} }) {
   let data = { totalMs: 0 };
   let loaded = false; // true when an earlier total was found on disk
@@ -85,4 +96,4 @@ function createVcTimer({ file, now = Date.now, onError = () => {} }) {
   };
 }
 
-module.exports = { createVcTimer, formatDuration };
+module.exports = { createVcTimer, formatDuration, formatStopwatch };
