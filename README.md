@@ -36,8 +36,8 @@ Keep your Discord profile online forever **and stay in a voice channel**.
 
 ## How staying in VC works
 
-- On startup the account joins `VOICE_CHANNEL_ID` muted + deafened (`SELF_MUTE=true`, `SELF_DEAF=true`).
-- It joins with a plain gateway message only — no audio connection is opened, so nothing is sent or received.
+- On startup the account joins `VOICE_CHANNEL_ID` with the mic on and deafened (`SELF_MUTE=false`, `SELF_DEAF=true`). Set `SELF_MUTE=true` to show as muted, or `SELF_DEAF=false` to show as not deafened.
+- It joins with a plain gateway message only — no audio connection is opened, so nothing is sent or received. "Mic on" only changes the icon others see; no sound is transmitted.
 - If you get kicked, moved to another VC, or the gateway reconnects, it rejoins after `REJOIN_DELAY` ms (default 5000).
 - A watchdog checks every `WATCHDOG_INTERVAL` ms (default 30000) and rejoins if you're not in the target VC.
 - If your mute/deafen state changes, it re-applies it.
@@ -50,8 +50,8 @@ Keep your Discord profile online forever **and stay in a voice channel**.
 | `token` | yes | — | Your Discord user token (aliases: `TOKEN`, `DISCORD_TOKEN`) |
 | `VOICE_CHANNEL_ID` | no* | — | Voice channel ID to join & stay in (aliases: `VC_ID`, `CHANNEL_ID`) |
 | `GUILD_ID` | no | — | Server ID. Normally not needed; set it if the logs say the channel was not found |
-| `SELF_MUTE` | no | `true` | Join muted |
-| `SELF_DEAF` | no | `true` | Join deafened |
+| `SELF_MUTE` | no | `false` | `false` = mic shown on, `true` = shown muted |
+| `SELF_DEAF` | no | `true` | `true` = shown deafened, `false` = not deafened |
 | `AUTO_REJOIN` | no | `true` | Rejoin when kicked/moved/disconnected |
 | `REJOIN_DELAY` | no | `5000` | Ms to wait before rejoining |
 | `WATCHDOG_INTERVAL` | no | `30000` | Ms between stay-checks |
