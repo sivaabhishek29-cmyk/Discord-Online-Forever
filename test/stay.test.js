@@ -182,7 +182,7 @@ const joinMsg = (channel) => ({ op: 4, d: { guild_id: GUILD, channel_id: channel
   const shown = presences[presences.length - 1];
   assert.strictEqual(shown.status, "online");
   const custom = shown.activities.find((a) => a.type === 4);
-  const card = shown.activities.find((a) => a.type === 0);
+  const card = shown.activities.find((a) => a.type === 5);
   assert.deepStrictEqual(custom, { name: "Custom Status", type: 4, state: "In VC for 2d 3h", emoji: { name: "🎧" } });
   assert.strictEqual(card.application_id, APP_ID);
   assert.strictEqual(card.name, "My App", "card uses the application's name");
@@ -212,8 +212,8 @@ const joinMsg = (channel) => ({ op: 4, d: { guild_id: GUILD, channel_id: channel
   await sleep(80);
   const idle = presences[presences.length - 1].activities;
   assert.strictEqual(idle.find((a) => a.type === 4).state, "Total VC time: 2d 3h");
-  assert.strictEqual(idle.find((a) => a.type === 0).details, "Not in voice right now");
-  assert(!idle.find((a) => a.type === 0).timestamps, "no elapsed clock when not in VC");
+  assert.strictEqual(idle.find((a) => a.type === 5).details, "Not in voice right now");
+  assert(!idle.find((a) => a.type === 5).timestamps, "no elapsed clock when not in VC");
   const saved = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "vc-timer.json"), "utf8"));
   assert(saved.totalMs >= (51 * 60 + 5) * 60000, "total is written to disk");
   assert.strictEqual(saved.customText, undefined, "reset removes the saved custom text");

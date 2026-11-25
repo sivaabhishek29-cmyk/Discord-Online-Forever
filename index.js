@@ -3,7 +3,14 @@ const keepAlive = require("./keep_alive.js");
 const path = require("path");
 const { applyUserAccountPatch, forceShardReady } = require("./eris_user_patch.js");
 const { createVcTimer, formatDuration } = require("./vc_timer.js");
-const { buildActivities, fetchApplication, pickAsset } = require("./activity.js");
+const {
+  buildActivities,
+  fetchApplication,
+  pickAsset,
+  describeSessions,
+  CARD_TYPES,
+  CARD_WORDING,
+} = require("./activity.js");
 
 // ---------------------------------------------------------------------------
 // Config (env vars)
@@ -71,8 +78,10 @@ const STATUS = STATUSES.includes((process.env.STATUS || "").trim().toLowerCase()
 // Discord developer application used for the Rich Presence card (public ID, not a secret).
 const APPLICATION_ID = (process.env.APPLICATION_ID || "1575262829869662312").trim();
 const DEFAULT_CUSTOM_TEXT = "In VC for {total}";
+const ACTIVITY_TYPE = (process.env.ACTIVITY_TYPE || "competing").trim().toLowerCase();
 const activityConfig = {
   mode: ACTIVITY_MODE,
+  cardType: ACTIVITY_TYPE in CARD_TYPES ? CARD_TYPES[ACTIVITY_TYPE] : CARD_TYPES.competing,
   appId: /^\d{15,25}$/.test(APPLICATION_ID) ? APPLICATION_ID : null,
   appName: process.env.ACTIVITY_NAME || null, // filled in from Discord if not set
   imageId: null, // filled in from the application's uploaded images
@@ -398,6 +407,43 @@ function activityEnabled() {
 }
 
 let presenceDebounce = null;
+let cardSent = false; // true when the last update included the card
+let lastSessionsLine = null;
+let privacyWarned = false;
+
+// Discord tells every device of the account what each session is showing.
+// Logging that is the only real proof of what other people can see.
+function onSessions(sessions) {
+  const ownId = bot && bot.shards.get(0) ? bot.shards.get(0).sessionID : null;
+  const lines = describeSessions(sessions, ownId);
+  if (!lines.length) return;
+  const line = lines.join(" | ");
+  // The shown time changes constantly; only log when the make-up changes.
+  const key = line.replace(/\d+[dhm]( \d+[hm])?/g, "#");
+  if (key === lastSessionsLine && !DEBUG) return;
+  lastSessionsLine = key;
+  log(`👁️ Discord reports this account as → ${line}`);
+
+  const own = sessions.find((s) => s && s.session_id === ownId);
+  if (own && cardSent && !(own.activities || []).some((a) => a.application_id)) {
+    log(
+      "⚠️ Discord kept the status line but dropped the card. Check that APPLICATION_ID is the " +
+        "Application ID from the Developer Portal (General Information page), copied in full."
+    );
+  }
+}
+
+// The card is hidden from everyone when the account has activity sharing off.
+function checkActivityPrivacy() {
+  const settings = bot && bot.userSettings;
+  if (privacyWarned || !settings || settings.show_current_game !== false) return;
+  privacyWarned = true;
+  log(
+    "⚠️ This account has activity sharing switched OFF, so the card is hidden from other people " +
+      "(the custom status still shows). On the Testiddc account open Settings > Activity Privacy and " +
+      "turn on \"Share your detected activities with others\"."
+  );
+}
 
 // Counts time only while the account is really in a voice channel, then
 // refreshes what is shown under its name.
@@ -436,6 +482,7 @@ function refreshPresence() {
     bot.editStatus(STATUS, activities);
 
     // Log when the kind of activity changes, not on every time tick.
+    cardSent = activities.some((a) => a.application_id);
     const shape = `${activities.map((a) => a.type).join(",")}|${inVoice}|${cfg.customText}|${cfg.appName}|${cfg.imageId}`;
     if (shape !== lastPresenceShape || DEBUG) {
       lastPresenceShape = shape;
@@ -445,7 +492,7 @@ function refreshPresence() {
         const parts = activities.map((a) =>
           a.type === 4
             ? `custom status "${a.emoji ? `${a.emoji.name} ` : ""}${a.state}"`
-            : `card "${a.name}" — ${a.details} / ${a.state}${a.assets ? " (with image)" : " (no image)"}`
+            : `card "${CARD_WORDING[a.type]} ${a.name}" — ${a.details} / ${a.state}${a.assets ? " (with image)" : " (no image)"}`
         );
         log(`🎭 Activity set (status: ${STATUS}): ${parts.join(" + ")}`);
       }
@@ -789,7 +836,19 @@ function main() {
 
   // Track our own voice state straight from the gateway.
   bot.on("rawWS", (packet) => {
-    if (!packet || packet.t !== "VOICE_STATE_UPDATE" || !packet.d) return;
+    if (!packet || !packet.d) return;
+    try {
+      if (packet.t === "SESSIONS_REPLACE") onSessions(packet.d);
+      else if (packet.t === "READY" && Array.isArray(packet.d.sessions)) setImmediate(() => onSessions(packet.d.sessions));
+      else if (packet.t === "USER_SETTINGS_UPDATE" && bot.userSettings) {
+        Object.assign(bot.userSettings, packet.d);
+        if (packet.d.show_current_game === true) privacyWarned = false;
+        checkActivityPrivacy();
+      }
+    } catch (err) {
+      log(`⚠️ Session report error: ${safeErr(err)}`);
+    }
+    if (packet.t !== "VOICE_STATE_UPDATE") return;
     if (!bot.user || packet.d.user_id !== bot.user.id) return;
     try {
       onSelfVoiceState(packet.d);
@@ -808,6 +867,7 @@ function main() {
     lastPresence = null; // new session: send the activity again
     syncTimerAndPresence();
     lookupApplication();
+    checkActivityPrivacy();
     log(`✅ Logged in as ${bot.user.username} (${bot.user.id})`);
     log(
       `📡 In ${bot.guilds.size} server(s)` +

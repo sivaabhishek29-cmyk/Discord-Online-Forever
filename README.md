@@ -57,7 +57,7 @@ The app counts how long the account has been in voice and keeps a running total.
 By default the account shows two things:
 
 - a **custom status**: `🎧 In VC for 2d 3h`
-- a **Rich Presence card** from your Discord application (`APPLICATION_ID`): the app's name, `Chilling in <channel>`, `Total VC time: …`, and a live elapsed clock for the current stay
+- a **Rich Presence card** from your Discord application (`APPLICATION_ID`): `Competing in <app name>`, `Chilling in <channel>`, `Total VC time: …`, and a live elapsed clock for the current stay
 
 The card's picture is the first image uploaded to the application (Developer Portal → your app → Rich Presence → Art Assets). Set `ACTIVITY_IMAGE` to an asset name to pick another. With no images uploaded the card shows without a picture.
 
@@ -77,6 +77,7 @@ Text can use `{total}` (lifetime VC time), `{stay}` (current stay), `{channel}` 
 | `WATCHDOG_INTERVAL` | no | `30000` | Ms between stay-checks |
 | `COMMAND_PREFIX` | no | `!` | Prefix for self-commands |
 | `ACTIVITY` | no | `both` | `both`, `custom` (status line only), `rich` (card only) or `off` |
+| `ACTIVITY_TYPE` | no | `competing` | Wording on the card: `playing`, `listening`, `watching` or `competing` |
 | `STATUS` | no | `online` | `online`, `idle`, `dnd` or `invisible` |
 | `APPLICATION_ID` | no | built in | Discord application used for the card |
 | `CUSTOM_STATUS` | no | `In VC for {total}` | Custom status text |
@@ -112,6 +113,7 @@ Send these from your own account (DM or any text channel). Only your own message
 - `npm: command not found` on Railway — Railway didn't install Node. This repo now includes `railway.toml` (Nixpacks builder, `npm ci` build, `npm start` start) plus a `Dockerfile` (`node:20-alpine`) as fallback. Push/redeploy so Railway picks them up. In Railway → Settings → Build, make sure Builder is **Nixpacks** (or **Docker** with the included Dockerfile) and Start Command is `npm start`. Check **Deployments → Logs**, not Console.
 - Logs stop at `Connecting to Discord...` — wait a minute; the next lines now say why. `Discord rejected the token` means the `token` variable is wrong or expired (changing your password or logging out resets it): copy a fresh one, no quotes or spaces. `Could not get the gateway address` / repeated `Gateway error` lines mean the host can't reach Discord; it keeps retrying on its own.
 - `Not logged in yet (shard 0: ready)` — old version: the library waited for a server-sync reply Discord no longer sends. Fixed in `eris_user_patch.js`; redeploy the latest `main`.
+- Status line shows but the card doesn't — look in the logs for `👁️ Discord reports this account as`. If the card is listed there, Discord has it and the account's privacy setting is hiding it: on that account open Settings > Activity Privacy and turn on "Share your detected activities with others" (also check the same switch in the server's privacy settings). If the logs say `dropped the card`, the `APPLICATION_ID` is wrong.
 - `Voice channel ... not found` — the account isn't in that server, or the ID is wrong (it must be the channel ID, not the server ID). Run `!vcs` to list valid IDs.
 - `Discord did not confirm joining` — Discord ignored the join: you lack Connect permission, the channel is full, or the ID is wrong. It retries automatically.
 - `/health` on the keep-alive URL shows `ready`, the current `vc` and whether it is `inTarget`.
