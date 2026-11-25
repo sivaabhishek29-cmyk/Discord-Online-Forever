@@ -37,8 +37,10 @@ h.finish("TICKING TEST", async () => {
   assert.notStrictEqual(last, first, "the seconds advance");
   assert(/^In VC for 00d-00h-00m-(0[5-9]|1\d)s$/.test(last), `shows running seconds: ${last}`);
   const card = h.shownActivities().find((a) => a.application_id);
-  assert.strictEqual(card.details, "Chilling in Lounge");
-  assert.strictEqual(card.state, last, "card line 2 shows the same stopwatch");
+  assert.strictEqual(card.details, "Chilling with Alya 🩷🎀");
+  assert.strictEqual(card.state, "👨‍💻 dev Lovelycrxshx ♠");
+  assert.deepStrictEqual(card.buttons, ["contact dev"]);
+  assert.deepStrictEqual(card.metadata.button_urls, ["https://discord.com/users/825998094067695616"]);
 
   // Out of VC the stopwatch stops, and so do the updates.
   h.voiceState(null);

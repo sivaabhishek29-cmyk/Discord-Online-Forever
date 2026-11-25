@@ -81,6 +81,12 @@ const STATUS = STATUSES.includes((process.env.STATUS || "").trim().toLowerCase()
 const APPLICATION_ID = (process.env.APPLICATION_ID || "1575262829869662312").trim();
 const DEFAULT_CUSTOM_TEXT = "In VC for {total}";
 const ACTIVITY_TYPE = (process.env.ACTIVITY_TYPE || "competing").trim().toLowerCase();
+function buttonFromEnv(n, defaultLabel, defaultUrl) {
+  const label = process.env[`BUTTON${n}_LABEL`] === undefined ? defaultLabel : process.env[`BUTTON${n}_LABEL`].trim();
+  const url = (process.env[`BUTTON${n}_URL`] || defaultUrl).trim();
+  return /^(off|none|false|0)?$/i.test(label) ? null : { label, url };
+}
+
 const activityConfig = {
   mode: ACTIVITY_MODE,
   cardType: ACTIVITY_TYPE in CARD_TYPES ? CARD_TYPES[ACTIVITY_TYPE] : CARD_TYPES.competing,
@@ -92,10 +98,15 @@ const activityConfig = {
   customText: process.env.CUSTOM_STATUS || DEFAULT_CUSTOM_TEXT,
   customTextIdle: "Total VC time: {total}",
   customEmoji: process.env.CUSTOM_STATUS_EMOJI === undefined ? "🎧" : process.env.CUSTOM_STATUS_EMOJI,
-  details: process.env.ACTIVITY_DETAILS || "Chilling in {channel}",
+  details: process.env.ACTIVITY_DETAILS || "Chilling with Alya 🩷🎀",
   detailsIdle: "Not in voice right now",
-  state: process.env.ACTIVITY_STATE || "In VC for {total}",
+  state: process.env.ACTIVITY_STATE || "👨‍💻 dev Lovelycrxshx ♠",
   stateIdle: "Total VC time: {total}",
+  // Link buttons under the card. Set a label to "off" to remove that button.
+  buttons: [
+    buttonFromEnv(1, "contact dev", "https://discord.com/users/825998094067695616"),
+    buttonFromEnv(2, "", ""),
+  ],
 };
 const ACTIVITY_IMAGE = process.env.ACTIVITY_IMAGE || "";
 // How often the shown time is sent to Discord. Discord allows 5 status changes
