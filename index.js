@@ -3,7 +3,6 @@ const keepAlive = require("./keep_alive.js");
 const path = require("path");
 const { applyUserAccountPatch, forceShardReady } = require("./eris_user_patch.js");
 const { createVcTimer, formatDuration, formatStopwatch } = require("./vc_timer.js");
-const { createPet, petAction, createLimiter } = require("./pet.js");
 const {
   buildActivities,
   fetchApplication,
@@ -80,9 +79,7 @@ const STATUS = STATUSES.includes((process.env.STATUS || "").trim().toLowerCase()
   : "online";
 // Discord developer application used for the Rich Presence card (public ID, not a secret).
 const APPLICATION_ID = (process.env.APPLICATION_ID || "1575262829869662312").trim();
-// Virtual pet shown on the status line; people look after it by DM.
-const PET_ENABLED = !/^(off|false|0|no)$/i.test((process.env.PET || "").trim());
-const DEFAULT_CUSTOM_TEXT = PET_ENABLED ? "{pet} · In VC for {total}" : "In VC for {total}";
+const DEFAULT_CUSTOM_TEXT = "In VC for {total}";
 const ACTIVITY_TYPE = (process.env.ACTIVITY_TYPE || "competing").trim().toLowerCase();
 function buttonFromEnv(n, defaultLabel, defaultUrl) {
   const label = process.env[`BUTTON${n}_LABEL`] === undefined ? defaultLabel : process.env[`BUTTON${n}_LABEL`].trim();
@@ -99,7 +96,7 @@ const activityConfig = {
   appName: process.env.ACTIVITY_NAME || null, // filled in from Discord if not set
   imageId: null, // filled in from the application's uploaded images
   customText: process.env.CUSTOM_STATUS || DEFAULT_CUSTOM_TEXT,
-  customTextIdle: PET_ENABLED ? "{pet} · Total VC time: {total}" : "Total VC time: {total}",
+  customTextIdle: "Total VC time: {total}",
   customEmoji: process.env.CUSTOM_STATUS_EMOJI === undefined ? "🎧" : process.env.CUSTOM_STATUS_EMOJI,
   details: process.env.ACTIVITY_DETAILS || "Chilling with Alya 🩷🎀",
   detailsIdle: "Not in voice right now",
@@ -150,8 +147,6 @@ let gatewaySessionId = null; // changes only when Discord gives us a brand-new s
 let knownSessionIds = null; // the account's live sessions, as last reported by Discord
 let lastReassert = 0;
 let vcTimer = null; // created in main()
-let pet = null; // created in main() unless PET=off
-const petReplyAllowed = createLimiter();
 let lastPresence = null; // JSON of the last activity list sent
 let lastPresenceShape = null;
 let appLookupDone = false;
@@ -467,10 +462,6 @@ function timerText() {
     : `Not in VC right now — ${total} in total`;
 }
 
-function petActive() {
-  return !!pet && !vcTimer.get("petOff");
-}
-
 function activityEnabled() {
   return activityConfig.mode !== "off" && !vcTimer.get("activityOff");
 }
@@ -535,20 +526,9 @@ function refreshPresence() {
     const inVoice = inVoiceNow();
     const channel = inVoice ? bot.getChannel(selfVoice.channelId) : null;
     const cfg = { ...activityConfig, customText: vcTimer.get("customText") || activityConfig.customText };
-    const mood = petActive() ? pet.mood() : null;
-    if (mood) {
-      // The pet's face replaces the status emoji unless one was chosen explicitly.
-      if (process.env.CUSTOM_STATUS_EMOJI === undefined) cfg.customEmoji = mood.face;
-    } else if (pet) {
-      // Pet switched off from chat: drop its part of the default text.
-      const strip = (t) => t.replace(/\{pet\}\s*·\s*/g, "");
-      cfg.customText = strip(cfg.customText);
-      cfg.customTextIdle = strip(cfg.customTextIdle);
-    }
     const activities = activityEnabled()
       ? buildActivities(cfg, {
           inVoice,
-          pet: mood ? mood.text : "",
           channelName: channel ? channel.name : null,
           serverName: channel && channel.guild ? channel.guild.name : null,
           total: formatStopwatch(vcTimer.totalMs()),
@@ -633,20 +613,6 @@ async function reply(msg, text) {
   }
 }
 
-// Someone else sent the account a one-word DM for the pet. The status line
-// picks the change up on its next regular refresh, so a burst of DMs can never
-// push the account over Discord's limit on status changes.
-async function handlePetMessage(msg) {
-  if (!petActive() || !bot.ready || msg.author.bot || msg.guildID) return;
-  // 1 = direct message. An unknown type means a DM opened after login.
-  if (msg.channel && msg.channel.type !== undefined && msg.channel.type !== 1) return;
-  const action = petAction(msg.content);
-  if (!action || !petReplyAllowed(msg.author.id)) return;
-  const text = pet[action]();
-  log(`🐾 Pet: "${action}" by DM → ${pet.mood().key}`);
-  await reply(msg, text);
-}
-
 async function handleCommand(msg) {
   const content = (msg.content || "").trim();
   if (!content.startsWith(COMMAND_PREFIX)) return;
@@ -666,7 +632,6 @@ async function handleCommand(msg) {
         `${COMMAND_PREFIX}timer — time spent in VC (this stay + total)`,
         `${COMMAND_PREFIX}activity <text> — change the custom status ({total}, {stay}, {channel} are filled in)`,
         `${COMMAND_PREFIX}activity off | on | reset — hide / show the activity, or restore the default text`,
-        `${COMMAND_PREFIX}pet — how the pet is doing; ${COMMAND_PREFIX}pet feed | play | pat | name <name> | off | on`,
         `${COMMAND_PREFIX}help — this message`,
       ].join("\n")
     );
@@ -676,29 +641,6 @@ async function handleCommand(msg) {
   if (cmd === "vcs" || cmd === "vc" || cmd === "channels") {
     const lines = listVoiceChannels();
     await reply(msg, lines.length ? `Voice channels:\n${lines.join("\n")}` : "No voice channels found.");
-    return;
-  }
-
-  if (cmd === "pet") {
-    const [wordRaw, ...nameParts] = arg.split(/\s+/);
-    const word = (wordRaw || "").toLowerCase();
-    if (!pet) {
-      await reply(msg, "The pet is switched off by the PET variable.");
-    } else if (word === "off" || word === "on") {
-      vcTimer.set("petOff", word === "off" ? true : null);
-      await reply(msg, word === "off" ? "Pet hidden. It no longer answers DMs." : `Pet is back. ${pet.stats()}`);
-    } else if (word === "name") {
-      const done = pet.rename(nameParts.join(" "));
-      await reply(msg, done ? `The pet is now called ${pet.name()}.` : `Usage: ${COMMAND_PREFIX}pet name <new name>`);
-    } else if (word === "feed" || word === "play" || word === "pat") {
-      const text = pet[word]();
-      await reply(msg, text);
-    } else {
-      await reply(
-        msg,
-        `${pet.stats()}${petActive() ? "" : " (hidden)"}\nOthers look after it by sending this account a DM with one word: feed, play, pat or stats.`
-      );
-    }
     return;
   }
 
@@ -929,19 +871,6 @@ function main() {
     );
   }
   if (!vcTimer.save()) log("⚠️ VC timer cannot write its file — the total will not be kept.");
-  if (PET_ENABLED) {
-    pet = createPet({
-      load: () => vcTimer.get("pet"),
-      save: (state) => vcTimer.set("pet", state),
-      name: (process.env.PET_NAME || "Mochi").trim() || "Mochi",
-      emoji: (process.env.PET_EMOJI || "").trim(),
-      hungerHours: Math.max(1, parseIntEnv(process.env.PET_HUNGER_HOURS, 12)),
-      boredHours: Math.max(1, parseIntEnv(process.env.PET_BORED_HOURS, 8)),
-      sleep: process.env.PET_SLEEP || "23-7",
-      timeZone: process.env.PET_TIMEZONE || "Asia/Kolkata",
-    });
-    log(`🐾 Pet: ${pet.stats()}`);
-  }
   log(
     `🎭 Activity: ${activityConfig.mode}, status ${STATUS}` +
       (activityConfig.appId ? `, application ${activityConfig.appId}` : ", no valid APPLICATION_ID (card disabled)")
@@ -1086,9 +1015,8 @@ function main() {
 
   // Self-commands in DM or guild text channels.
   bot.on("messageCreate", (msg) => {
-    if (!bot.user || !msg.author) return;
-    const handler = msg.author.id === bot.user.id ? handleCommand : handlePetMessage;
-    handler(msg).catch((err) => {
+    if (!bot.user || !msg.author || msg.author.id !== bot.user.id) return;
+    handleCommand(msg).catch((err) => {
       log(`⚠️ Command error: ${safeErr(err)}`);
     });
   });

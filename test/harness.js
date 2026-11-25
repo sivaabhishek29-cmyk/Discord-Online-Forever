@@ -35,7 +35,6 @@ class FakeWebSocket extends EventEmitter {
 Object.assign(FakeWebSocket, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
 
 const logs = [];
-const messages = [];
 const realLog = console.log;
 
 function start(env = {}) {
@@ -50,17 +49,11 @@ function start(env = {}) {
   const Eris = require("eris");
   Eris.Client.prototype.getGateway = async () => ({ url: "wss://gateway.test" });
   global.fetch = async () => { throw new Error("offline"); };
-  // Messages the account would post (REST is not reachable in tests).
-  Eris.Client.prototype.createMessage = async (channelId, content) => {
-    messages.push({ channelId, content });
-    return { id: String(messages.length) };
-  };
 
   Object.assign(process.env, {
     token: TOKEN,
     VOICE_CHANNEL_ID: VC,
     PRESENCE_DEBOUNCE: "20",
-    PET: "off", // pet.test.js switches it on
     DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "harness-")),
     ...env,
   });
@@ -124,5 +117,5 @@ function finish(name, run) {
 
 module.exports = {
   TOKEN, ME, GUILD, VC, logs, sockets, socket, start, sleep, until, dispatch, lastSeq,
-  ready, voiceState, sentOp, shownActivities, finish, messages,
+  ready, voiceState, sentOp, shownActivities, finish,
 };
