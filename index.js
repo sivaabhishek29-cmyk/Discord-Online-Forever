@@ -100,12 +100,13 @@ const activityConfig = {
   customEmoji: process.env.CUSTOM_STATUS_EMOJI === undefined ? "🎧" : process.env.CUSTOM_STATUS_EMOJI,
   details: process.env.ACTIVITY_DETAILS || "Chilling with Alya 🩷🎀",
   detailsIdle: "Not in voice right now",
-  state: process.env.ACTIVITY_STATE || "👨‍💻 dev Lovelycrxshx ♠",
+  state: process.env.ACTIVITY_STATE || "dev Lovelycrxshx ♠",
   stateIdle: "Total VC time: {total}",
   // Link buttons under the card. Set a label to "off" to remove that button.
   buttons: [
-    buttonFromEnv(1, "contact dev", "https://discord.com/users/825998094067695616"),
-    buttonFromEnv(2, "", ""),
+    // Discord allows at most 32 characters on a button.
+    buttonFromEnv(1, "Self-run acc, not a real user", "https://discord.com/users/825998094067695616"),
+    buttonFromEnv(2, "Contact Admin", "https://discord.com/users/825998094067695616"),
   ],
 };
 const ACTIVITY_IMAGE = process.env.ACTIVITY_IMAGE || "";
