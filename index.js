@@ -1,6 +1,9 @@
 const Eris = require("eris");
 const keepAlive = require("./keep_alive.js");
+const path = require("path");
 const { applyUserAccountPatch, forceShardReady } = require("./eris_user_patch.js");
+const { createVcTimer, formatDuration } = require("./vc_timer.js");
+const { buildActivities, fetchApplication, pickAsset } = require("./activity.js");
 
 // ---------------------------------------------------------------------------
 // Config (env vars)
@@ -56,6 +59,41 @@ const JOIN_CONFIRM_TIMEOUT = parseIntEnv(process.env.JOIN_CONFIRM_TIMEOUT, 10000
 const READY_TIMEOUT = parseIntEnv(process.env.READY_TIMEOUT, 45000);
 const DEBUG = parseBool(process.env.DEBUG, false);
 
+// --- Activity (what shows under the account's name) -------------------------
+const ACTIVITY_MODES = ["both", "custom", "rich", "off"];
+const ACTIVITY_MODE = ACTIVITY_MODES.includes((process.env.ACTIVITY || "").trim().toLowerCase())
+  ? process.env.ACTIVITY.trim().toLowerCase()
+  : "both";
+const STATUSES = ["online", "idle", "dnd", "invisible"];
+const STATUS = STATUSES.includes((process.env.STATUS || "").trim().toLowerCase())
+  ? process.env.STATUS.trim().toLowerCase()
+  : "online";
+// Discord developer application used for the Rich Presence card (public ID, not a secret).
+const APPLICATION_ID = (process.env.APPLICATION_ID || "1575262829869662312").trim();
+const DEFAULT_CUSTOM_TEXT = "In VC for {total}";
+const activityConfig = {
+  mode: ACTIVITY_MODE,
+  appId: /^\d{15,25}$/.test(APPLICATION_ID) ? APPLICATION_ID : null,
+  appName: process.env.ACTIVITY_NAME || null, // filled in from Discord if not set
+  imageId: null, // filled in from the application's uploaded images
+  customText: process.env.CUSTOM_STATUS || DEFAULT_CUSTOM_TEXT,
+  customTextIdle: "Total VC time: {total}",
+  customEmoji: process.env.CUSTOM_STATUS_EMOJI === undefined ? "🎧" : process.env.CUSTOM_STATUS_EMOJI,
+  details: process.env.ACTIVITY_DETAILS || "Chilling in {channel}",
+  detailsIdle: "Not in voice right now",
+  state: process.env.ACTIVITY_STATE || "Total VC time: {total}",
+};
+const ACTIVITY_IMAGE = process.env.ACTIVITY_IMAGE || "";
+const ACTIVITY_REFRESH = parseIntEnv(process.env.ACTIVITY_REFRESH, 300000);
+const PRESENCE_DEBOUNCE = parseIntEnv(process.env.PRESENCE_DEBOUNCE, 2000);
+
+// --- VC timer storage -------------------------------------------------------
+// Railway sets RAILWAY_VOLUME_MOUNT_PATH when a Volume is attached to the service.
+const DATA_DIR =
+  process.env.DATA_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(__dirname, "data");
+const HAS_PERSISTENT_DISK = !!(process.env.DATA_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH);
+const ON_RAILWAY = !!(process.env.RAILWAY_PROJECT_ID || process.env.RAILWAY_ENVIRONMENT);
+
 // Eris channel types: 2 = GUILD_VOICE, 13 = GUILD_STAGE_VOICE
 const VOICE_TYPES = new Set([2, 13]);
 const GATEWAY_OP_VOICE_STATE_UPDATE = 4;
@@ -76,6 +114,11 @@ let rejoinTimer = null;
 let watchdogTimer = null;
 let everReady = false;
 let lastMuteFix = 0;
+let vcTimer = null; // created in main()
+let lastPresence = null; // JSON of the last activity list sent
+let lastPresenceShape = null;
+let appLookupDone = false;
+let appLookupAt = 0;
 
 function log(...args) {
   console.log(new Date().toISOString(), ...args);
@@ -337,6 +380,113 @@ function startWatchdog() {
 }
 
 // ---------------------------------------------------------------------------
+// VC timer + activity
+// ---------------------------------------------------------------------------
+function inVoiceNow() {
+  return !!(bot && bot.ready && selfVoice);
+}
+
+function timerText() {
+  const total = formatDuration(vcTimer.totalMs());
+  return inVoiceNow()
+    ? `In VC for ${formatDuration(vcTimer.stayMs())} this stay — ${total} in total`
+    : `Not in VC right now — ${total} in total`;
+}
+
+function activityEnabled() {
+  return activityConfig.mode !== "off" && !vcTimer.get("activityOff");
+}
+
+let presenceDebounce = null;
+
+// Counts time only while the account is really in a voice channel, then
+// refreshes what is shown under its name.
+function syncTimerAndPresence() {
+  if (!vcTimer) return;
+  if (inVoiceNow()) vcTimer.start();
+  else vcTimer.stop();
+  // Wait a moment so a kick + instant rejoin sends one update, not three.
+  if (presenceDebounce) return;
+  presenceDebounce = setTimeout(() => {
+    presenceDebounce = null;
+    refreshPresence();
+  }, PRESENCE_DEBOUNCE);
+  if (presenceDebounce.unref) presenceDebounce.unref();
+}
+
+function refreshPresence() {
+  if (!bot || !bot.ready || !vcTimer) return;
+  try {
+    const inVoice = inVoiceNow();
+    const channel = inVoice ? bot.getChannel(selfVoice.channelId) : null;
+    const cfg = { ...activityConfig, customText: vcTimer.get("customText") || activityConfig.customText };
+    const activities = activityEnabled()
+      ? buildActivities(cfg, {
+          inVoice,
+          channelName: channel ? channel.name : null,
+          serverName: channel && channel.guild ? channel.guild.name : null,
+          total: formatDuration(vcTimer.totalMs()),
+          stay: formatDuration(vcTimer.stayMs()),
+          stayStart: vcTimer.stayStart(),
+        })
+      : [];
+    const payload = JSON.stringify([STATUS, activities]);
+    if (payload === lastPresence) return;
+    lastPresence = payload;
+    bot.editStatus(STATUS, activities);
+
+    // Log when the kind of activity changes, not on every time tick.
+    const shape = `${activities.map((a) => a.type).join(",")}|${inVoice}|${cfg.customText}|${cfg.appName}|${cfg.imageId}`;
+    if (shape !== lastPresenceShape || DEBUG) {
+      lastPresenceShape = shape;
+      if (!activities.length) {
+        log(`🎭 Activity cleared (status: ${STATUS})`);
+      } else {
+        const parts = activities.map((a) =>
+          a.type === 4
+            ? `custom status "${a.emoji ? `${a.emoji.name} ` : ""}${a.state}"`
+            : `card "${a.name}" — ${a.details} / ${a.state}${a.assets ? " (with image)" : " (no image)"}`
+        );
+        log(`🎭 Activity set (status: ${STATUS}): ${parts.join(" + ")}`);
+      }
+    }
+  } catch (err) {
+    log(`⚠️ Could not update activity: ${safeErr(err)}`);
+  }
+}
+
+// Fetches the application's name and image once (retries every 10 min on failure).
+async function lookupApplication() {
+  const wantsCard = activityConfig.mode === "both" || activityConfig.mode === "rich";
+  if (!wantsCard || !activityConfig.appId || appLookupDone) return;
+  if (Date.now() - appLookupAt < 600000) return;
+  appLookupAt = Date.now();
+  try {
+    const info = await fetchApplication(activityConfig.appId);
+    if (info.name && !process.env.ACTIVITY_NAME) activityConfig.appName = info.name;
+    const asset = pickAsset(info.assets, ACTIVITY_IMAGE);
+    if (asset) activityConfig.imageId = asset.id;
+
+    if (info.errors.length) {
+      log(`⚠️ Could not read application ${activityConfig.appId} from Discord (${info.errors.join("; ")}) — will retry later`);
+    } else {
+      appLookupDone = true;
+      log(
+        `🖼️ Application "${info.name || "?"}": ` +
+          (asset
+            ? `using image "${asset.name}"` +
+              (info.assets.length > 1 ? ` (others: ${info.assets.filter((a) => a !== asset).map((a) => a.name).join(", ")})` : "")
+            : "no images uploaded — the card will show without a picture. " +
+              "Add one in the Developer Portal > your app > Rich Presence > Art Assets.")
+      );
+    }
+    refreshPresence();
+  } catch (err) {
+    log(`⚠️ Application lookup failed: ${safeErr(err)}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Self-commands (only the account owner can use these)
 // ---------------------------------------------------------------------------
 function extractChannelId(text) {
@@ -371,6 +521,9 @@ async function handleCommand(msg) {
         `${COMMAND_PREFIX}leave — leave VC and pause auto-rejoin`,
         `${COMMAND_PREFIX}status — show current VC / target / connection`,
         `${COMMAND_PREFIX}vcs — list all voice channels`,
+        `${COMMAND_PREFIX}timer — time spent in VC (this stay + total)`,
+        `${COMMAND_PREFIX}activity <text> — change the custom status ({total}, {stay}, {channel} are filled in)`,
+        `${COMMAND_PREFIX}activity off | on | reset — hide / show the activity, or restore the default text`,
         `${COMMAND_PREFIX}help — this message`,
       ].join("\n")
     );
@@ -380,6 +533,40 @@ async function handleCommand(msg) {
   if (cmd === "vcs" || cmd === "vc" || cmd === "channels") {
     const lines = listVoiceChannels();
     await reply(msg, lines.length ? `Voice channels:\n${lines.join("\n")}` : "No voice channels found.");
+    return;
+  }
+
+  if (cmd === "timer" || cmd === "time") {
+    await reply(msg, timerText());
+    return;
+  }
+
+  if (cmd === "activity") {
+    const word = arg.toLowerCase();
+    if (!arg) {
+      const text = vcTimer.get("customText") || activityConfig.customText;
+      await reply(
+        msg,
+        `Activity: ${activityEnabled() ? activityConfig.mode : "off"}\nCustom status text: ${text}\n` +
+          `Card: ${activityConfig.appName || "(app name not loaded yet)"}${activityConfig.imageId ? " with image" : ", no image"}`
+      );
+    } else if (word === "off" || word === "on") {
+      if (activityConfig.mode === "off") {
+        await reply(msg, "Activity is switched off by the ACTIVITY variable.");
+        return;
+      }
+      vcTimer.set("activityOff", word === "off" ? true : null);
+      refreshPresence();
+      await reply(msg, `Activity ${word}.`);
+    } else if (word === "reset") {
+      vcTimer.set("customText", null);
+      refreshPresence();
+      await reply(msg, `Custom status text reset to: ${activityConfig.customText}`);
+    } else {
+      vcTimer.set("customText", arg.slice(0, 120));
+      refreshPresence();
+      await reply(msg, `Custom status text set to: ${arg.slice(0, 120)}`);
+    }
     return;
   }
 
@@ -394,6 +581,7 @@ async function handleCommand(msg) {
         `Held by another device: ${heldByOtherDevice()}`,
         `Auto-rejoin: ${AUTO_REJOIN} (paused=${intentionalLeave})`,
         `Mute/deaf: ${SELF_MUTE}/${SELF_DEAF}`,
+        `Timer: ${timerText()}`,
       ].join("\n")
     );
     return;
@@ -448,6 +636,14 @@ function updateStatus() {
       inTarget: !!targetChannelId && getSelfVoiceChannelId() === targetChannelId,
       error: fatalReason,
     });
+    if (vcTimer && keepAlive.setLive) {
+      keepAlive.setLive(() => ({
+        vcTotal: formatDuration(vcTimer.totalMs()),
+        vcTotalSeconds: Math.floor(vcTimer.totalMs() / 1000),
+        vcThisStay: formatDuration(vcTimer.stayMs()),
+        timerSurvivesRedeploy: HAS_PERSISTENT_DISK,
+      }));
+    }
   } catch {
     // ignore
   }
@@ -486,6 +682,26 @@ function main() {
   if (targetChannelId && !/^\d{15,25}$/.test(targetChannelId)) {
     log("⚠️ VOICE_CHANNEL_ID should be only digits (right-click the voice channel > Copy Channel ID).");
   }
+
+  vcTimer = createVcTimer({
+    file: path.join(DATA_DIR, "vc-timer.json"),
+    onError: (err) => log(`⚠️ VC timer storage problem (${DATA_DIR}): ${safeErr(err)}`),
+  });
+  log(
+    `⏱️ VC timer: ${formatDuration(vcTimer.totalMs())} so far ` +
+      `(${vcTimer.loaded ? "loaded from" : "new file at"} ${vcTimer.file})`
+  );
+  if (!HAS_PERSISTENT_DISK && ON_RAILWAY) {
+    log(
+      "⚠️ No Railway Volume attached — the VC timer will start from zero again on every redeploy. " +
+        "Attach a Volume to this service (any mount path, e.g. /data) to keep the total."
+    );
+  }
+  if (!vcTimer.save()) log("⚠️ VC timer cannot write its file — the total will not be kept.");
+  log(
+    `🎭 Activity: ${activityConfig.mode}, status ${STATUS}` +
+      (activityConfig.appId ? `, application ${activityConfig.appId}` : ", no valid APPLICATION_ID (card disabled)")
+  );
 
   // Without this a user account logs in but Eris never reports "ready".
   applyUserAccountPatch();
@@ -566,7 +782,10 @@ function main() {
     if (DEBUG || DEBUG_IMPORTANT.test(text)) log(`🐞 ${clip(text)}`);
   });
   bot.on("connect", (id) => log(`🔌 Gateway socket open (shard ${id}) — logging in...`));
-  bot.on("shardResume", (id) => log(`✅ Gateway session resumed (shard ${id})`));
+  bot.on("shardResume", (id) => {
+    log(`✅ Gateway session resumed (shard ${id})`);
+    syncTimerAndPresence();
+  });
 
   // Track our own voice state straight from the gateway.
   bot.on("rawWS", (packet) => {
@@ -577,6 +796,7 @@ function main() {
     } catch (err) {
       log(`⚠️ Voice state handler error: ${safeErr(err)}`);
     }
+    syncTimerAndPresence();
   });
 
   bot.on("ready", () => {
@@ -585,6 +805,9 @@ function main() {
     // A fresh session never inherits the old one's voice state.
     selfVoice = null;
     ourVoiceSessionId = null;
+    lastPresence = null; // new session: send the activity again
+    syncTimerAndPresence();
+    lookupApplication();
     log(`✅ Logged in as ${bot.user.username} (${bot.user.id})`);
     log(
       `📡 In ${bot.guilds.size} server(s)` +
@@ -606,6 +829,7 @@ function main() {
   });
 
   bot.on("disconnect", () => {
+    syncTimerAndPresence(); // pauses the VC timer while the connection is down
     updateStatus();
   });
 
@@ -627,8 +851,22 @@ function main() {
   process.on("unhandledRejection", (err) => log(`⚠️ Unhandled rejection: ${clip(safeErr(err))}`));
   process.on("uncaughtException", (err) => {
     log(`❌ Uncaught exception: ${safeErr(err && err.stack ? err.stack : err)}`);
+    try {
+      if (vcTimer) vcTimer.save();
+    } catch {
+      // ignore
+    }
     process.exit(1);
   });
+
+  // Keep the saved total fresh, and the shown time roughly current.
+  const saveTick = setInterval(() => vcTimer.save(), 60000);
+  if (saveTick.unref) saveTick.unref();
+  const presenceTick = setInterval(() => {
+    lookupApplication();
+    refreshPresence();
+  }, ACTIVITY_REFRESH);
+  if (presenceTick.unref) presenceTick.unref();
 
   log("🚀 Connecting to Discord...");
 
@@ -654,6 +892,14 @@ function shutdown() {
   if (watchdogTimer) clearInterval(watchdogTimer);
   if (rejoinTimer) clearTimeout(rejoinTimer);
   intentionalLeave = true;
+  try {
+    if (vcTimer) {
+      vcTimer.stop();
+      vcTimer.save();
+    }
+  } catch {
+    // ignore
+  }
   try {
     if (bot && selfVoice && !heldByOtherDevice()) sendVoiceState(selfVoice.guildId, null);
   } catch {

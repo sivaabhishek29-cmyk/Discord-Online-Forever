@@ -4,6 +4,8 @@ const Module = require("module");
 const EventEmitter = require("events");
 const assert = require("assert");
 const path = require("path");
+const fs = require("fs");
+const os = require("os");
 
 const TOKEN = "AAAAAAAAAAAAAAAAAAAAAAAAAA.BBBBBB.CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
 const ME = "111111111111111111";
@@ -11,6 +13,21 @@ const GUILD = "222222222222222222";
 const VC = "333333333333333333";
 const VC2 = "444444444444444444";
 
+const APP_ID = "999999999999999999";
+const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "stay-test-"));
+// A total saved by an "earlier run": 2 days 3 hours.
+fs.writeFileSync(path.join(DATA_DIR, "vc-timer.json"), JSON.stringify({ totalMs: (51 * 60 + 5) * 60000 }));
+
+// Discord's public application endpoints, faked.
+global.fetch = async (url) => ({
+  ok: true,
+  json: async () =>
+    String(url).endsWith("/rpc")
+      ? { id: APP_ID, name: "My App" }
+      : [{ id: "777", name: "logo", type: 1 }, { id: "888", name: "other", type: 1 }],
+});
+
+const presences = []; // every status/activity update index.js sends
 const sent = []; // every gateway message index.js sends
 const logs = [];
 let client = null;
@@ -35,6 +52,7 @@ class FakeClient extends EventEmitter {
   }
   getChannel(id) { return this.guilds.get(GUILD).channels.get(id) || null; }
   joinVoiceChannel() { throw new Error("must not open an Eris voice connection"); }
+  editStatus(status, activities) { presences.push({ status, activities }); }
   async createMessage(channel, text) { this.messages.push(text); }
   async getGateway() { throw new Error("REST blocked"); }
   async connect() { this.gateway = await this.getGateway(); }
@@ -56,6 +74,9 @@ Object.assign(process.env, {
   REJOIN_DELAY: "40",
   WATCHDOG_INTERVAL: "150",
   JOIN_CONFIRM_TIMEOUT: "120",
+  PRESENCE_DEBOUNCE: "20",
+  APPLICATION_ID: APP_ID,
+  DATA_DIR,
 });
 require(path.join(__dirname, "..", "index.js"));
 
@@ -155,6 +176,47 @@ const joinMsg = (channel) => ({ op: 4, d: { guild_id: GUILD, channel_id: channel
   await sleep(10);
   assert.strictEqual(sent.length, n + 1, "rejoins after a new session");
   voice(VC2, "bot-session-2");
+
+  // 12. activity: custom status + card, with the saved total carried over
+  await sleep(80);
+  const shown = presences[presences.length - 1];
+  assert.strictEqual(shown.status, "online");
+  const custom = shown.activities.find((a) => a.type === 4);
+  const card = shown.activities.find((a) => a.type === 0);
+  assert.deepStrictEqual(custom, { name: "Custom Status", type: 4, state: "In VC for 2d 3h", emoji: { name: "🎧" } });
+  assert.strictEqual(card.application_id, APP_ID);
+  assert.strictEqual(card.name, "My App", "card uses the application's name");
+  assert.strictEqual(card.details, "Chilling in vc-444");
+  assert.strictEqual(card.state, "Total VC time: 2d 3h");
+  assert.deepStrictEqual(card.assets, { large_image: "777", large_text: "My App" }, "card uses the first uploaded image");
+  assert(card.timestamps && card.timestamps.start <= Date.now(), "card shows a live elapsed clock while in VC");
+
+  // 13. !timer and !activity
+  say("!timer");
+  await sleep(10);
+  assert(/In VC for 0m this stay — 2d 3h in total/.test(client.messages[client.messages.length - 1]), "!timer reports stay + total");
+  say("!activity grinding {channel}");
+  await sleep(10);
+  assert.strictEqual(presences[presences.length - 1].activities.find((a) => a.type === 4).state, "grinding vc-444");
+  say("!activity off");
+  await sleep(10);
+  assert.deepStrictEqual(presences[presences.length - 1].activities, [], "!activity off clears it");
+  say("!activity on");
+  say("!activity reset");
+  await sleep(10);
+  assert.strictEqual(presences[presences.length - 1].activities.find((a) => a.type === 4).state, "In VC for 2d 3h");
+
+  // 14. out of VC: timer pauses, card loses its clock
+  say("!leave");
+  voice(null, "bot-session-2");
+  await sleep(80);
+  const idle = presences[presences.length - 1].activities;
+  assert.strictEqual(idle.find((a) => a.type === 4).state, "Total VC time: 2d 3h");
+  assert.strictEqual(idle.find((a) => a.type === 0).details, "Not in voice right now");
+  assert(!idle.find((a) => a.type === 0).timestamps, "no elapsed clock when not in VC");
+  const saved = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "vc-timer.json"), "utf8"));
+  assert(saved.totalMs >= (51 * 60 + 5) * 60000, "total is written to disk");
+  assert.strictEqual(saved.customText, undefined, "reset removes the saved custom text");
 
   // 11. gateway errors are logged, and the token never is
   client.emit("error", new Error(`Invalid token: ${TOKEN}`), 0);

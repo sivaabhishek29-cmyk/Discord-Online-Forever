@@ -6,6 +6,8 @@ const Module = require("module");
 const EventEmitter = require("events");
 const assert = require("assert");
 const path = require("path");
+const fs = require("fs");
+const os = require("os");
 
 const TOKEN = "AAAAAAAAAAAAAAAAAAAAAAAAAA.BBBBBB.CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
 const ME = "111111111111111111";
@@ -49,7 +51,11 @@ console.log = (...a) => { logs.push(a.join(" ")); if (process.env.VERBOSE) realL
 const Eris = require("eris");
 Eris.Client.prototype.getGateway = async () => ({ url: "wss://gateway.test" });
 
-Object.assign(process.env, { token: TOKEN, VOICE_CHANNEL_ID: VC, JOIN_CONFIRM_TIMEOUT: "500" });
+global.fetch = async () => { throw new Error("offline"); }; // application lookup fails: must not matter
+Object.assign(process.env, {
+  token: TOKEN, VOICE_CHANNEL_ID: VC, JOIN_CONFIRM_TIMEOUT: "500", PRESENCE_DEBOUNCE: "20",
+  DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "login-test-")),
+});
 require(path.join(__dirname, "..", "index.js"));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -103,6 +109,18 @@ const until = async (check, what, ms = 3000) => {
     d: { user_id: ME, guild_id: GUILD, channel_id: VC, session_id: "gateway-session", self_mute: false, self_deaf: true, mute: false, deaf: false },
   });
   await until(() => logs.some((l) => l.includes("✅ Joined #Lounge")), "join to be confirmed");
+
+  // The activity goes out over the real library as a presence update (op 3).
+  await until(
+    () => socket.sent.some((p) => p.op === 3 && p.d.activities.some((a) => a.type === 0 && a.timestamps)),
+    "activity with the VC clock to be sent"
+  );
+  const presence = socket.sent.filter((p) => p.op === 3).pop().d;
+  assert.strictEqual(presence.status, "online");
+  assert.deepStrictEqual(presence.activities.map((a) => a.type), [4, 0], "custom status + card");
+  assert.strictEqual(presence.activities[0].state, "In VC for 0m");
+  assert.strictEqual(presence.activities[1].name, "Voice Chat", "falls back to a default name when the lookup fails");
+  assert(!presence.activities[1].assets, "no image when the lookup fails");
   assert(!logs.some((l) => l.includes(TOKEN)), "token never appears in logs");
 
   realLog("LOGIN TEST PASSED");
