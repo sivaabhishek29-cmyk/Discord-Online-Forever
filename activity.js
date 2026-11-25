@@ -63,6 +63,15 @@ function describeSessions(sessions, ownSessionId) {
     });
 }
 
+// Up to two link buttons under the card. Discord wants the labels and the links
+// in two separate lists; a button without a usable link is left out.
+function cleanButtons(buttons) {
+  return (Array.isArray(buttons) ? buttons : [])
+    .map((b) => ({ label: clamp((b && b.label) || "", 32), url: String((b && b.url) || "").trim() }))
+    .filter((b) => b.label && /^https?:\/\/\S+$/i.test(b.url) && b.url.length <= 512)
+    .slice(0, 2);
+}
+
 // mode: "both" | "custom" | "rich" | "off"
 function buildActivities(cfg, state) {
   const values = {
@@ -96,10 +105,15 @@ function buildActivities(cfg, state) {
     if (cfg.imageId) {
       rich.assets = { large_image: cfg.imageId, large_text: clamp(cfg.appName || "Voice Chat") };
     }
+    const buttons = cleanButtons(cfg.buttons);
+    if (buttons.length) {
+      rich.buttons = buttons.map((b) => b.label);
+      rich.metadata = { button_urls: buttons.map((b) => b.url) };
+    }
     activities.push(rich);
   }
 
   return activities;
 }
 
-module.exports = { buildActivities, fetchApplication, pickAsset, fill, describeSessions, CARD_TYPES, CARD_WORDING };
+module.exports = { cleanButtons, buildActivities, fetchApplication, pickAsset, fill, describeSessions, CARD_TYPES, CARD_WORDING };

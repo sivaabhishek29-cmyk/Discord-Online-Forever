@@ -188,8 +188,10 @@ const joinMsg = (channel) => ({ op: 4, d: { guild_id: GUILD, channel_id: channel
   assert.deepStrictEqual({ ...custom, state: "" }, { name: "Custom Status", type: 4, state: "", emoji: { name: "🎧" } });
   assert.strictEqual(card.application_id, APP_ID);
   assert.strictEqual(card.name, "My App", "card uses the application's name");
-  assert.strictEqual(card.details, "Chilling in vc-444");
-  assert(STOPWATCH.test(card.state), card.state);
+  assert.strictEqual(card.details, "Chilling with Alya 🩷🎀");
+  assert.strictEqual(card.state, "👨‍💻 dev Lovelycrxshx ♠");
+  assert.deepStrictEqual(card.buttons, ["contact dev"]);
+  assert.deepStrictEqual(card.metadata, { button_urls: ["https://discord.com/users/825998094067695616"] });
   assert.deepStrictEqual(card.assets, { large_image: "777", large_text: "My App" }, "card uses the first uploaded image");
   const clockReads = Date.now() - card.timestamps.start;
   assert(Math.abs(clockReads - (51 * 60 + 5) * 60000) < 5000, "card clock ticks from the saved lifetime total (2d 3h 5m)");

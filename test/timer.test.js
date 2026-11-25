@@ -4,7 +4,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { createVcTimer, formatDuration, formatStopwatch } = require("../vc_timer.js");
-const { buildActivities, pickAsset, fill, describeSessions } = require("../activity.js");
+const { cleanButtons, buildActivities, pickAsset, fill, describeSessions } = require("../activity.js");
 
 const MIN = 60000;
 const HOUR = 60 * MIN;
@@ -102,3 +102,19 @@ assert.deepStrictEqual(
 );
 
 console.log("TIMER TESTS PASSED");
+
+// Buttons: labels and links go out as two lists; unusable ones are dropped.
+{
+  const build = buildActivities;
+  const clean = cleanButtons;
+  const base = { mode: "rich", appId: "42", details: "a", detailsIdle: "b", state: "c" };
+  const st = { inVoice: true, total: "1m", stay: "1m" };
+  const withButtons = build({ ...base, buttons: [{ label: "contact dev", url: "https://discord.com/users/1" }, null] }, st)[0];
+  assert.deepStrictEqual(withButtons.buttons, ["contact dev"]);
+  assert.deepStrictEqual(withButtons.metadata, { button_urls: ["https://discord.com/users/1"] });
+  const none = build({ ...base, buttons: [null, { label: "x", url: "not a link" }] }, st)[0];
+  assert(!("buttons" in none) && !("metadata" in none), "no button fields when there is nothing to show");
+  assert.strictEqual(clean([{ label: "L".repeat(40), url: "https://a.b" }])[0].label.length, 32);
+  assert.strictEqual(clean([1, 2, 3].map((n) => ({ label: `b${n}`, url: "https://a.b" }))).length, 2);
+  console.log("BUTTON TESTS PASSED");
+}

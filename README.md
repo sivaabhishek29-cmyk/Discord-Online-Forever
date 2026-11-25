@@ -59,11 +59,13 @@ The app counts how long the account has been in voice and keeps a running total.
 By default the account shows two things:
 
 - a **custom status**: `🎧 In VC for 09d-14h-47m-54s`
-- a **Rich Presence card** from your Discord application (`APPLICATION_ID`): `Competing in <app name>`, `Chilling in <channel>`, `In VC for 09d-14h-47m-54s`, and a clock that counts your total VC time, ticking every second
+- a **Rich Presence card** from your Discord application (`APPLICATION_ID`): `Competing in <app name>`, `Chilling with Alya 🩷🎀`, `👨‍💻 dev Lovelycrxshx ♠`, a clock that counts your total VC time, ticking every second, and a `contact dev` button that opens a Discord profile
 
-The clock is drawn by Discord on the viewer's screen, so it moves every second without the app sending anything. The text lines are re-sent every 5 seconds with the current days, hours, minutes and seconds. That is as fast as Discord permits: it allows 5 status changes per 20 seconds and disconnects accounts that go over.
+The clock is drawn by Discord on the viewer's screen, so it moves every second without the app sending anything. The custom status is re-sent every 5 seconds with the current days, hours, minutes and seconds. That is as fast as Discord permits: it allows 5 status changes per 20 seconds and disconnects accounts that go over.
 
 The card's picture is the first image uploaded to the application (Developer Portal → your app → Rich Presence → Art Assets). Set `ACTIVITY_IMAGE` to an asset name to pick another. With no images uploaded the card shows without a picture.
+
+The card can have up to two link buttons (`BUTTON1_LABEL` + `BUTTON1_URL`, `BUTTON2_LABEL` + `BUTTON2_URL`). Discord does not show your own buttons to you: check them from another account. A link to a Discord profile is `https://discord.com/users/<user id>`.
 
 Text can use `{total}` (lifetime VC time), `{stay}` (current stay), `{channel}` and `{server}`.
 
@@ -87,8 +89,12 @@ Text can use `{total}` (lifetime VC time), `{stay}` (current stay), `{channel}` 
 | `APPLICATION_ID` | no | built in | Discord application used for the card |
 | `CUSTOM_STATUS` | no | `In VC for {total}` | Custom status text |
 | `CUSTOM_STATUS_EMOJI` | no | `🎧` | Emoji in front of the custom status (empty for none) |
-| `ACTIVITY_DETAILS` | no | `Chilling in {channel}` | First line of the card |
-| `ACTIVITY_STATE` | no | `In VC for {total}` | Second line of the card |
+| `ACTIVITY_DETAILS` | no | `Chilling with Alya 🩷🎀` | First line of the card |
+| `ACTIVITY_STATE` | no | `👨‍💻 dev Lovelycrxshx ♠` | Second line of the card |
+| `BUTTON1_LABEL` | no | `contact dev` | Text on the first button (max 32 characters). `off` removes the button |
+| `BUTTON1_URL` | no | `https://discord.com/users/825998094067695616` | Link the first button opens |
+| `BUTTON2_LABEL` | no | — | Text on an optional second button |
+| `BUTTON2_URL` | no | — | Link the second button opens |
 | `ACTIVITY_IMAGE` | no | first image | Name of the application image to show |
 | `ACTIVITY_NAME` | no | app's name | Title of the card |
 | `ACTIVITY_CLOCK` | no | `total` | What the card's ticking clock counts: `total` (lifetime VC time) or `stay` (current stay) |
