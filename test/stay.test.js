@@ -186,7 +186,7 @@ const joinMsg = (channel) => ({ op: 4, d: { guild_id: GUILD, channel_id: channel
   assert.deepStrictEqual(custom, { name: "Custom Status", type: 4, state: "In VC for 2d 3h", emoji: { name: "🎧" } });
   assert.strictEqual(card.application_id, APP_ID);
   assert.strictEqual(card.name, "My App", "card uses the application's name");
-  assert.strictEqual(card.details, "Chilling in vc-444");
+  assert.strictEqual(card.details, "learning MLL vc-444");
   assert.strictEqual(card.state, "Total VC time: 2d 3h");
   assert.deepStrictEqual(card.assets, { large_image: "777", large_text: "My App" }, "card uses the first uploaded image");
   assert(card.timestamps && card.timestamps.start <= Date.now(), "card shows a live elapsed clock while in VC");

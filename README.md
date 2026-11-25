@@ -59,7 +59,7 @@ The app counts how long the account has been in voice and keeps a running total.
 By default the account shows two things:
 
 - a **custom status**: `🎧 In VC for 2d 3h`
-- a **Rich Presence card** from your Discord application (`APPLICATION_ID`): `Competing in <app name>`, `Chilling in <channel>`, `Total VC time: …`, and a live elapsed clock for the current stay
+- a **Rich Presence card** from your Discord application (`APPLICATION_ID`): `Competing in <app name>`, `learning MLL <channel>`, `Total VC time: …`, and a live elapsed clock for the current stay
 
 The card's picture is the first image uploaded to the application (Developer Portal → your app → Rich Presence → Art Assets). Set `ACTIVITY_IMAGE` to an asset name to pick another. With no images uploaded the card shows without a picture.
 
@@ -85,7 +85,7 @@ Text can use `{total}` (lifetime VC time), `{stay}` (current stay), `{channel}` 
 | `APPLICATION_ID` | no | built in | Discord application used for the card |
 | `CUSTOM_STATUS` | no | `In VC for {total}` | Custom status text |
 | `CUSTOM_STATUS_EMOJI` | no | `🎧` | Emoji in front of the custom status (empty for none) |
-| `ACTIVITY_DETAILS` | no | `Chilling in {channel}` | First line of the card |
+| `ACTIVITY_DETAILS` | no | `learning MLL {channel}` | First line of the card |
 | `ACTIVITY_STATE` | no | `Total VC time: {total}` | Second line of the card |
 | `ACTIVITY_IMAGE` | no | first image | Name of the application image to show |
 | `ACTIVITY_NAME` | no | app's name | Title of the card |

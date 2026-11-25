@@ -90,7 +90,7 @@ const activityConfig = {
   customText: process.env.CUSTOM_STATUS || DEFAULT_CUSTOM_TEXT,
   customTextIdle: "Total VC time: {total}",
   customEmoji: process.env.CUSTOM_STATUS_EMOJI === undefined ? "🎧" : process.env.CUSTOM_STATUS_EMOJI,
-  details: process.env.ACTIVITY_DETAILS || "Chilling in {channel}",
+  details: process.env.ACTIVITY_DETAILS || "learning MLL {channel}",
   detailsIdle: "Not in voice right now",
   state: process.env.ACTIVITY_STATE || "Total VC time: {total}",
 };
