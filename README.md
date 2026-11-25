@@ -77,6 +77,7 @@ Send these from your own account (DM or any text channel). Only your own message
 
 - `npm: command not found` on Railway — Railway didn't install Node. This repo now includes `railway.toml` (Nixpacks builder, `npm ci` build, `npm start` start) plus a `Dockerfile` (`node:20-alpine`) as fallback. Push/redeploy so Railway picks them up. In Railway → Settings → Build, make sure Builder is **Nixpacks** (or **Docker** with the included Dockerfile) and Start Command is `npm start`. Check **Deployments → Logs**, not Console.
 - Logs stop at `Connecting to Discord...` — wait a minute; the next lines now say why. `Discord rejected the token` means the `token` variable is wrong or expired (changing your password or logging out resets it): copy a fresh one, no quotes or spaces. `Could not get the gateway address` / repeated `Gateway error` lines mean the host can't reach Discord; it keeps retrying on its own.
+- `Not logged in yet (shard 0: ready)` — old version: the library waited for a server-sync reply Discord no longer sends. Fixed in `eris_user_patch.js`; redeploy the latest `main`.
 - `Voice channel ... not found` — the account isn't in that server, or the ID is wrong (it must be the channel ID, not the server ID). Run `!vcs` to list valid IDs.
 - `Discord did not confirm joining` — Discord ignored the join: you lack Connect permission, the channel is full, or the ID is wrong. It retries automatically.
 - `/health` on the keep-alive URL shows `ready`, the current `vc` and whether it is `inTarget`.

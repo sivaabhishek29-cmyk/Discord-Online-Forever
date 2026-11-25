@@ -1,5 +1,6 @@
 const Eris = require("eris");
 const keepAlive = require("./keep_alive.js");
+const { applyUserAccountPatch, forceShardReady } = require("./eris_user_patch.js");
 
 // ---------------------------------------------------------------------------
 // Config (env vars)
@@ -451,6 +452,8 @@ function updateStatus() {
   }
 }
 
+const UNKNOWN_CHANNEL = /^Unknown (guild )?(text )?channel type/;
+let skippedChannels = 0;
 const DEBUG_IMPORTANT = /reconnect|disconnected|heartbeat timeout|invalidating|terminating/i;
 
 function clip(text, max = 300) {
@@ -482,6 +485,9 @@ function main() {
   if (targetChannelId && !/^\d{15,25}$/.test(targetChannelId)) {
     log("⚠️ VOICE_CHANNEL_ID should be only digits (right-click the voice channel > Copy Channel ID).");
   }
+
+  // Without this a user account logs in but Eris never reports "ready".
+  applyUserAccountPatch();
 
   bot = new Eris(TOKEN, {
     autoreconnect: true,
@@ -532,12 +538,31 @@ function main() {
     }
   });
   bot.on("warn", (msg, id) => {
-    log(`⚠️ Gateway warning${id !== undefined ? ` (shard ${id})` : ""}: ${clip(safeErr(msg))}`);
+    const text = safeErr(msg);
+    // Eris 0.17 doesn't know newer channel types (forums, media, ...) and warns
+    // once per channel with a full data dump. Harmless — count them instead.
+    if (!DEBUG && UNKNOWN_CHANNEL.test(text)) {
+      skippedChannels++;
+      return;
+    }
+    log(`⚠️ Gateway warning${id !== undefined ? ` (shard ${id})` : ""}: ${clip(text.split("\n")[0])}`);
+  });
+
+  // Login accepted by Discord. Eris should flag itself ready right after;
+  // if it doesn't within a few seconds, push it over the line.
+  bot.on("shardPreReady", (id) => {
+    log(`🔓 Discord accepted the login (shard ${id})`);
+    const t = setTimeout(() => {
+      const shard = bot.shards.get(id);
+      if (shard && !shard.ready && forceShardReady(shard)) {
+        log(`⏩ Shard ${id} was stuck after login — forced ready`);
+      }
+    }, 5000);
+    if (t.unref) t.unref();
   });
   bot.on("debug", (msg) => {
     const text = safeErr(msg);
-    const handshake = !everReady && /^\{"op":(2|6),/.test(text);
-    if (DEBUG || handshake || DEBUG_IMPORTANT.test(text)) log(`🐞 ${clip(text)}`);
+    if (DEBUG || DEBUG_IMPORTANT.test(text)) log(`🐞 ${clip(text)}`);
   });
   bot.on("connect", (id) => log(`🔌 Gateway socket open (shard ${id}) — logging in...`));
   bot.on("shardResume", (id) => log(`✅ Gateway session resumed (shard ${id})`));
@@ -560,7 +585,11 @@ function main() {
     selfVoice = null;
     ourVoiceSessionId = null;
     log(`✅ Logged in as ${bot.user.username} (${bot.user.id})`);
-    log(`📡 In ${bot.guilds.size} guild(s)`);
+    log(
+      `📡 In ${bot.guilds.size} server(s)` +
+        (skippedChannels ? ` (ignored ${skippedChannels} forum/other non-voice channels Eris doesn't know)` : "")
+    );
+    skippedChannels = 0;
     updateStatus();
     if (targetChannelId) {
       intentionalLeave = false;

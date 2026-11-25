@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node --check index.js && node --check keep_alive.js && node test/stay.test.js"
+    "test": "node --check index.js && node --check keep_alive.js && node --check eris_user_patch.js && node test/stay.test.js && node test/login.test.js"
   },
   "author": "",
   "license": "ISC",
