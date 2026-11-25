@@ -37,9 +37,11 @@ Keep your Discord profile online forever **and stay in a voice channel**.
 ## How staying in VC works
 
 - On startup the account joins `VOICE_CHANNEL_ID` muted + deafened (`SELF_MUTE=true`, `SELF_DEAF=true`).
-- If you get kicked, moved to another VC, or the voice/gateway connection drops, it auto-rejoins after `REJOIN_DELAY` ms (default 5000).
+- It joins with a plain gateway message only — no audio connection is opened, so nothing is sent or received.
+- If you get kicked, moved to another VC, or the gateway reconnects, it rejoins after `REJOIN_DELAY` ms (default 5000).
 - A watchdog checks every `WATCHDOG_INTERVAL` ms (default 30000) and rejoins if you're not in the target VC.
-- If you unmute/un-deafen yourself, it re-applies mute/deafen.
+- If your mute/deafen state changes, it re-applies it.
+- If you join voice yourself from your phone or PC, it does not fight you: it waits and rejoins the target VC when that device leaves voice. (Discord allows one voice session per account, so the first join after a restart does take voice over from another device.)
 
 ## Config (env vars / secrets)
 
@@ -47,13 +49,14 @@ Keep your Discord profile online forever **and stay in a voice channel**.
 | --- | --- | --- | --- |
 | `token` | yes | — | Your Discord user token (aliases: `TOKEN`, `DISCORD_TOKEN`) |
 | `VOICE_CHANNEL_ID` | no* | — | Voice channel ID to join & stay in (aliases: `VC_ID`, `CHANNEL_ID`) |
-| `GUILD_ID` | no | — | Server ID, only used for logging/validation |
+| `GUILD_ID` | no | — | Server ID. Normally not needed; set it if the logs say the channel was not found |
 | `SELF_MUTE` | no | `true` | Join muted |
 | `SELF_DEAF` | no | `true` | Join deafened |
 | `AUTO_REJOIN` | no | `true` | Rejoin when kicked/moved/disconnected |
 | `REJOIN_DELAY` | no | `5000` | Ms to wait before rejoining |
 | `WATCHDOG_INTERVAL` | no | `30000` | Ms between stay-checks |
 | `COMMAND_PREFIX` | no | `!` | Prefix for self-commands |
+| `DEBUG` | no | `false` | Log every gateway message (noisy) |
 
 \* If `VOICE_CHANNEL_ID` is not set, the bot stays online only and logs all voice channels so you can copy an ID. You can also join later with `!join <channelId>` (see below) without restarting.
 
@@ -73,7 +76,8 @@ Send these from your own account (DM or any text channel). Only your own message
 ## Troubleshooting
 
 - `npm: command not found` on Railway — Railway didn't install Node. This repo now includes `railway.toml` (Nixpacks builder, `npm ci` build, `npm start` start) plus a `Dockerfile` (`node:20-alpine`) as fallback. Push/redeploy so Railway picks them up. In Railway → Settings → Build, make sure Builder is **Nixpacks** (or **Docker** with the included Dockerfile) and Start Command is `npm start`. Check **Deployments → Logs**, not Console.
-- `Voice channel ... not found` — the account isn't in that server, or the ID is wrong. Run `!vcs` to list valid IDs.
-- `Insufficient permission to connect` — the channel is locked / you lack Connect permission.
-- `Voice connection timeout` — Discord didn't answer; the bot retries automatically. Check your internet / host logs.
+- Logs stop at `Connecting to Discord...` — wait a minute; the next lines now say why. `Discord rejected the token` means the `token` variable is wrong or expired (changing your password or logging out resets it): copy a fresh one, no quotes or spaces. `Could not get the gateway address` / repeated `Gateway error` lines mean the host can't reach Discord; it keeps retrying on its own.
+- `Voice channel ... not found` — the account isn't in that server, or the ID is wrong (it must be the channel ID, not the server ID). Run `!vcs` to list valid IDs.
+- `Discord did not confirm joining` — Discord ignored the join: you lack Connect permission, the channel is full, or the ID is wrong. It retries automatically.
+- `/health` on the keep-alive URL shows `ready`, the current `vc` and whether it is `inTarget`.
 - Bot goes offline — check the keep-alive URL with UptimeRobot and the host logs. The `keep_alive.js` server listens on `PORT` (default 8080) and answers `I'm alive` at `/`.

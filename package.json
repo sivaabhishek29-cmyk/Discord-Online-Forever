@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node --check index.js && node --check keep_alive.js && echo \"syntax ok\""
+    "test": "node --check index.js && node --check keep_alive.js && node test/stay.test.js"
   },
   "author": "",
   "license": "ISC",

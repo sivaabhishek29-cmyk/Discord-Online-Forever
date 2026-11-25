@@ -2,6 +2,11 @@ var http = require("http");
 
 var PORT = process.env.PORT || 8080;
 var startedAt = Date.now();
+var botStatus = { ready: false, vc: null, target: null };
+
+function setStatus(patch) {
+  Object.assign(botStatus, patch || {});
+}
 
 var server = http.createServer(function (req, res) {
   if (req.url === "/health" || req.url === "/status") {
@@ -10,6 +15,7 @@ var server = http.createServer(function (req, res) {
       JSON.stringify({
         ok: true,
         uptime: Math.floor((Date.now() - startedAt) / 1000),
+        bot: botStatus,
       })
     );
     return;
@@ -26,3 +32,5 @@ server.on("error", function (err) {
 server.listen(PORT, "0.0.0.0", function () {
   console.log("keep_alive listening on port " + PORT);
 });
+
+module.exports = { setStatus: setStatus };
