@@ -63,6 +63,37 @@ function describeSessions(sessions, ownSessionId) {
     });
 }
 
+// "31-12-2026 23:59", "31/12/2026 11:59 pm", "2026-12-31", "2026-12-31T23:59+05:30"
+// → milliseconds, or null. Without a zone the time is read in `offset`
+// (India time by default).
+function parseWhen(text, offset = "+05:30") {
+  const s = String(text || "").trim();
+  const time = "(?:[T\\s,]+(\\d{1,2})[:.](\\d{2})(?::(\\d{2}))?\\s*([ap]m)?)?\\s*(z|[+-]\\d{2}:?\\d{2})?";
+  let y, mo, d, rest;
+  let m = new RegExp(`^(\\d{4})-(\\d{1,2})-(\\d{1,2})${time}$`, "i").exec(s);
+  if (m) [, y, mo, d, ...rest] = m;
+  else {
+    m = new RegExp(`^(\\d{1,2})[-/.](\\d{1,2})[-/.](\\d{4})${time}$`, "i").exec(s);
+    if (!m) return null;
+    [, d, mo, y, ...rest] = m;
+  }
+  const [hRaw, miRaw, secRaw, ampm, zoneRaw] = rest;
+  let h = hRaw === undefined ? 0 : +hRaw;
+  if (ampm) {
+    if (h < 1 || h > 12) return null;
+    h = (h % 12) + (/p/i.test(ampm) ? 12 : 0);
+  }
+  const [mi, sec] = [+(miRaw || 0), +(secRaw || 0)];
+  [y, mo, d] = [+y, +mo, +d];
+  if (mo < 1 || mo > 12 || d < 1 || h > 23 || mi > 59 || sec > 59) return null;
+  if (d > new Date(Date.UTC(y, mo, 0)).getUTCDate()) return null; // e.g. 31 February
+  let zone = (zoneRaw || offset || "+05:30").toUpperCase();
+  if (zone !== "Z" && !zone.includes(":")) zone = `${zone.slice(0, 3)}:${zone.slice(3)}`;
+  const p2 = (n) => String(n).padStart(2, "0");
+  const ms = Date.parse(`${y}-${p2(mo)}-${p2(d)}T${p2(h)}:${p2(mi)}:${p2(sec)}${zone}`);
+  return Number.isFinite(ms) ? ms : null;
+}
+
 // Up to two link buttons under the card. Discord wants the labels and the links
 // in two separate lists; a button without a usable link is left out.
 function cleanButtons(buttons) {
@@ -101,7 +132,9 @@ function buildActivities(cfg, state) {
     // screen, with no updates from us. (Text can't do that: Discord only allows
     // a few status changes per 20 seconds.)
     const clockStart = cfg.clock === "stay" ? state.stayStart : state.totalStart || state.stayStart;
-    if (state.inVoice && clockStart) rich.timestamps = { start: clockStart };
+    // An end time makes Discord count DOWN to it instead (also ticking by itself).
+    if (state.countdownEnd) rich.timestamps = { end: state.countdownEnd };
+    else if (state.inVoice && clockStart) rich.timestamps = { start: clockStart };
     if (cfg.imageId) {
       rich.assets = { large_image: cfg.imageId, large_text: clamp(cfg.appName || "Voice Chat") };
     }
@@ -116,4 +149,4 @@ function buildActivities(cfg, state) {
   return activities;
 }
 
-module.exports = { cleanButtons, buildActivities, fetchApplication, pickAsset, fill, describeSessions, CARD_TYPES, CARD_WORDING };
+module.exports = { parseWhen, cleanButtons, buildActivities, fetchApplication, pickAsset, fill, describeSessions, CARD_TYPES, CARD_WORDING };

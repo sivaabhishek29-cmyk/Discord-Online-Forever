@@ -4,7 +4,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { createVcTimer, formatDuration, formatStopwatch } = require("../vc_timer.js");
-const { cleanButtons, buildActivities, pickAsset, fill, describeSessions } = require("../activity.js");
+const { parseWhen, cleanButtons, buildActivities, pickAsset, fill, describeSessions } = require("../activity.js");
 
 const MIN = 60000;
 const HOUR = 60 * MIN;
@@ -19,6 +19,7 @@ assert.strictEqual(formatDuration(59 * MIN + 59000), "59m");
 assert.strictEqual(formatDuration(5 * HOUR + 12 * MIN), "5h 12m");
 assert.strictEqual(formatDuration(52 * HOUR + 30 * MIN), "2d 4h");
 assert.strictEqual(formatStopwatch(0), "00d-00h-00m-00s");
+assert.strictEqual(formatStopwatch(((9 * 24 + 14) * 60 + 47) * MIN + 54999, false), "09d-14h-47m");
 assert.strictEqual(formatStopwatch(((9 * 24 + 14) * 60 + 47) * MIN + 54999), "09d-14h-47m-54s");
 assert.strictEqual(formatStopwatch(123 * 24 * HOUR + 1000), "123d-00h-00m-01s");
 
@@ -117,4 +118,30 @@ console.log("TIMER TESTS PASSED");
   assert.strictEqual(clean([{ label: "L".repeat(40), url: "https://a.b" }])[0].label.length, 32);
   assert.strictEqual(clean([1, 2, 3].map((n) => ({ label: `b${n}`, url: "https://a.b" }))).length, 2);
   console.log("BUTTON TESTS PASSED");
+}
+
+// Countdown: an end time replaces the count-up clock, in or out of voice.
+{
+  const base = { mode: "rich", appId: "42", details: "a", detailsIdle: "b", state: "c" };
+  const up = buildActivities(base, { inVoice: true, total: "1m", stay: "1m", stayStart: 5, totalStart: 3 })[0];
+  assert.deepStrictEqual(up.timestamps, { start: 3 });
+  const down = buildActivities(base, { inVoice: true, total: "1m", stay: "1m", stayStart: 5, totalStart: 3, countdownEnd: 999 })[0];
+  assert.deepStrictEqual(down.timestamps, { end: 999 });
+  const idle = buildActivities(base, { inVoice: false, total: "1m", stay: "1m", countdownEnd: 999 })[0];
+  assert.deepStrictEqual(idle.timestamps, { end: 999 }, "the countdown shows out of voice too");
+
+  // Dates are read day-first or year-first, in India time unless a zone is given.
+  const iso = (text, offset) => { const ms = parseWhen(text, offset); return ms === null ? null : new Date(ms).toISOString(); };
+  assert.strictEqual(iso("31-12-2026 23:59"), "2026-12-31T18:29:00.000Z");
+  assert.strictEqual(iso("31/12/2026 11:59 pm"), "2026-12-31T18:29:00.000Z");
+  assert.strictEqual(iso("31-12-2026, 9:05 AM"), "2026-12-31T03:35:00.000Z");
+  assert.strictEqual(iso("1.1.2027 12:00 am"), "2026-12-31T18:30:00.000Z");
+  assert.strictEqual(iso("2026-12-31"), "2026-12-30T18:30:00.000Z");
+  assert.strictEqual(iso("2026-12-31T23:59+05:30"), "2026-12-31T18:29:00.000Z");
+  assert.strictEqual(iso("2026-12-31 18:29Z"), "2026-12-31T18:29:00.000Z");
+  assert.strictEqual(iso("31-12-2026 23:59", "+00:00"), "2026-12-31T23:59:00.000Z");
+  for (const bad of ["soon", "", "31-02-2026", "2026-13-01", "2026-12-31 25:00", "31-12-2026 13:00 pm", "12-31-2026"]) {
+    assert.strictEqual(iso(bad), null, `"${bad}" is not a date`);
+  }
+  console.log("COUNTDOWN TESTS PASSED");
 }

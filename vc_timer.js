@@ -13,15 +13,16 @@ function formatDuration(ms) {
   return `${m}m`;
 }
 
-// Stopwatch style: 09d-14h-47m-54s
-function formatStopwatch(ms) {
+// Stopwatch style: 09d-14h-47m-54s (or 09d-14h-47m when the text is only
+// refreshed about once a minute — a frozen seconds figure would be wrong).
+function formatStopwatch(ms, withSeconds = true) {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   const pad = (n) => String(n).padStart(2, "0");
   const d = Math.floor(totalSeconds / 86400);
   const h = Math.floor((totalSeconds % 86400) / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
   const s = totalSeconds % 60;
-  return `${pad(d)}d-${pad(h)}h-${pad(m)}m-${pad(s)}s`;
+  return withSeconds ? `${pad(d)}d-${pad(h)}h-${pad(m)}m-${pad(s)}s` : `${pad(d)}d-${pad(h)}h-${pad(m)}m`;
 }
 
 function createVcTimer({ file, now = Date.now, onError = () => {} }) {
