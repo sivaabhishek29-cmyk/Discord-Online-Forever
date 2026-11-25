@@ -112,15 +112,34 @@ const until = async (check, what, ms = 3000) => {
 
   // The activity goes out over the real library as a presence update (op 3).
   await until(
-    () => socket.sent.some((p) => p.op === 3 && p.d.activities.some((a) => a.type === 0 && a.timestamps)),
+    () => socket.sent.some((p) => p.op === 3 && p.d.activities.some((a) => a.type === 5 && a.timestamps)),
     "activity with the VC clock to be sent"
   );
   const presence = socket.sent.filter((p) => p.op === 3).pop().d;
   assert.strictEqual(presence.status, "online");
-  assert.deepStrictEqual(presence.activities.map((a) => a.type), [4, 0], "custom status + card");
+  assert.deepStrictEqual(presence.activities.map((a) => a.type), [4, 5], "custom status + 'Competing in' card");
   assert.strictEqual(presence.activities[0].state, "In VC for 0m");
   assert.strictEqual(presence.activities[1].name, "Voice Chat", "falls back to a default name when the lookup fails");
   assert(!presence.activities[1].assets, "no image when the lookup fails");
+
+  // Discord's own report of what the account shows is logged...
+  const sessionsPacket = (activities) => ({
+    op: 0, s: 3, t: "SESSIONS_REPLACE",
+    d: [
+      { session_id: "gateway-session", status: "online", client_info: { client: "unknown", os: "linux" }, activities },
+      { session_id: "phone", status: "idle", client_info: { client: "mobile", os: "android" }, activities: [] },
+    ],
+  });
+  socket.receive(sessionsPacket(presence.activities));
+  await until(() => logs.some((l) => l.includes("Discord reports this account as") && l.includes("Competing in Voice Chat") && l.includes("[mobile/android] idle")), "session report in the log");
+  assert(!logs.some((l) => l.includes("dropped the card")), "no warning when Discord kept the card");
+  // ...and it says so when Discord kept only the status line,
+  socket.receive(sessionsPacket(presence.activities.filter((a) => a.type === 4)));
+  await until(() => logs.some((l) => l.includes("dropped the card")), "warning when Discord dropped the card");
+  // ...or when the account's privacy setting hides the card.
+  socket.receive({ op: 0, s: 4, t: "USER_SETTINGS_UPDATE", d: { show_current_game: false } });
+  await until(() => logs.some((l) => l.includes("activity sharing switched OFF")), "privacy warning");
+
   assert(!logs.some((l) => l.includes(TOKEN)), "token never appears in logs");
 
   realLog("LOGIN TEST PASSED");

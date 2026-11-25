@@ -45,6 +45,24 @@ function pickAsset(assets, wantedName) {
   return assets[0];
 }
 
+// Wording Discord puts in front of the card's title.
+const CARD_TYPES = { playing: 0, listening: 2, watching: 3, competing: 5 };
+const CARD_WORDING = { 0: "Playing", 2: "Listening to", 3: "Watching", 5: "Competing in" };
+
+// One short line per session, from what Discord itself reports for the account.
+function describeSessions(sessions, ownSessionId) {
+  return (Array.isArray(sessions) ? sessions : [])
+    .filter((s) => s && s.session_id !== "all")
+    .map((s) => {
+      const info = s.client_info || {};
+      const where = s.session_id === ownSessionId ? "this app" : [info.client, info.os].filter(Boolean).join("/") || "other device";
+      const acts = (s.activities || []).map((a) =>
+        a.type === 4 ? `status "${a.state || ""}"` : `${CARD_WORDING[a.type] || "Activity"} ${a.name}`
+      );
+      return `[${where}] ${s.status}: ${acts.length ? acts.join(" + ") : "no activity"}`;
+    });
+}
+
 // mode: "both" | "custom" | "rich" | "off"
 function buildActivities(cfg, state) {
   const values = {
@@ -65,7 +83,7 @@ function buildActivities(cfg, state) {
   if ((cfg.mode === "both" || cfg.mode === "rich") && cfg.appId) {
     const rich = {
       name: clamp(cfg.appName || "Voice Chat"),
-      type: 0,
+      type: cfg.cardType in CARD_WORDING ? cfg.cardType : 5,
       application_id: cfg.appId,
       details: clamp(state.inVoice ? fill(cfg.details, values) : fill(cfg.detailsIdle, values)),
       state: clamp(fill(cfg.state, values)),
@@ -81,4 +99,4 @@ function buildActivities(cfg, state) {
   return activities;
 }
 
-module.exports = { buildActivities, fetchApplication, pickAsset, fill };
+module.exports = { buildActivities, fetchApplication, pickAsset, fill, describeSessions, CARD_TYPES, CARD_WORDING };

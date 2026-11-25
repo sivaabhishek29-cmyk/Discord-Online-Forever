@@ -4,7 +4,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { createVcTimer, formatDuration } = require("../vc_timer.js");
-const { buildActivities, pickAsset, fill } = require("../activity.js");
+const { buildActivities, pickAsset, fill, describeSessions } = require("../activity.js");
 
 const MIN = 60000;
 const HOUR = 60 * MIN;
@@ -69,12 +69,26 @@ const cfg = {
 const state = { inVoice: true, channelName: "General", total: "3h 1m", stay: "5m", stayStart: 123 };
 assert.deepStrictEqual(buildActivities(cfg, state), [
   { name: "Custom Status", type: 4, state: "In VC for 3h 1m" },
-  { name: "Voice Chat", type: 0, application_id: "42", details: "Chilling in General", state: "Total VC time: 3h 1m", timestamps: { start: 123 } },
+  { name: "Voice Chat", type: 5, application_id: "42", details: "Chilling in General", state: "Total VC time: 3h 1m", timestamps: { start: 123 } },
 ]);
 assert.deepStrictEqual(buildActivities({ ...cfg, mode: "custom" }, state).map((a) => a.type), [4]);
-assert.deepStrictEqual(buildActivities({ ...cfg, mode: "rich" }, state).map((a) => a.type), [0]);
+assert.deepStrictEqual(buildActivities({ ...cfg, mode: "rich" }, state).map((a) => a.type), [5], "competing by default");
+assert.deepStrictEqual(buildActivities({ ...cfg, mode: "rich", cardType: 3 }, state).map((a) => a.type), [3]);
 assert.deepStrictEqual(buildActivities({ ...cfg, mode: "off" }, state), []);
 assert.deepStrictEqual(buildActivities({ ...cfg, appId: null }, state).map((a) => a.type), [4], "no card without an application");
 assert(buildActivities({ ...cfg, customText: "x".repeat(300) }, state)[0].state.length <= 128, "text is clipped to Discord's limit");
+
+// what Discord reports back, summarised
+assert.deepStrictEqual(
+  describeSessions(
+    [
+      { session_id: "all", status: "online", activities: [] },
+      { session_id: "mine", status: "online", activities: [{ type: 4, name: "Custom Status", state: "In VC for 5m" }, { type: 5, name: "My App", application_id: "42" }] },
+      { session_id: "phone", status: "idle", client_info: { client: "mobile", os: "android" }, activities: [] },
+    ],
+    "mine"
+  ),
+  ['[this app] online: status "In VC for 5m" + Competing in My App', "[mobile/android] idle: no activity"]
+);
 
 console.log("TIMER TESTS PASSED");
