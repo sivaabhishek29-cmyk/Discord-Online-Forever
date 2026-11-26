@@ -131,7 +131,7 @@ activityConfig.card2 = CARD2_ON
       type: (process.env.CARD2_TYPE || "").trim().toLowerCase() === "watching" ? 3 : 2,
       name: process.env.CARD2_NAME || null, // else the application's name, else the channel's
       details: process.env.CARD2_DETAILS === undefined ? "Activity Intervel 🦈" : process.env.CARD2_DETAILS,
-      state: process.env.CARD2_STATE === undefined ? "Level {level}" : process.env.CARD2_STATE,
+      state: process.env.CARD2_STATE === undefined ? "Day {day}" : process.env.CARD2_STATE,
       levelMs: LEVEL_MS,
       // "time": the bar's left-hand figure is the local time of day.
       // "level": the bar fills once per LEVEL_TIME of voice time.
@@ -154,6 +154,10 @@ if (activityConfig.card2) {
   }
 }
 const CARD2_IMAGE = process.env.CARD2_IMAGE || "";
+// How often the applications' names and pictures are read again.
+const APP_RECHECK = parseIntEnv(process.env.APP_RECHECK, 900000);
+// The calendar day that counts as "Day 1" ({day} in card text).
+const DAY_ONE_DEFAULT = "26-11-2026";
 const ACTIVITY_IMAGE = process.env.ACTIVITY_IMAGE || "";
 // How often the shown time is sent to Discord: once a minute. Faster makes the
 // account look automated; 5s is the floor (Discord allows 5 status changes per
@@ -213,7 +217,6 @@ let outOfVoiceSince = 0;
 let voiceStuckAlerted = false;
 let lastPresence = null; // JSON of the last activity list sent
 let lastPresenceShape = null;
-let appLookupDone = false;
 let appLookupAt = 0;
 
 function log(...args) {
@@ -698,6 +701,7 @@ function refreshPresence() {
           stay: formatStopwatch(vcTimer.stayMs(), TEXT_SECONDS),
           countdownEnd: countdownEnd(),
           dayStart: dayStart(),
+          day: dayNumber(),
           totalMs: vcTimer.totalMs(),
           stayStart: vcTimer.stayStart(),
           totalStart: vcTimer.totalStart(),
@@ -711,7 +715,7 @@ function refreshPresence() {
     // Log when the kind of activity changes, not on every time tick.
     cardSent = activities.some((a) => a.application_id);
     cardsSent = activities.filter((a) => a.type !== 4).length;
-    const shape = `${activities.map((a) => a.type).join(",")}|${inVoice}|${cfg.customText}|${cfg.appName}|${cfg.imageId}|${countdownEnd() || ""}|${activities.map((a) => (a.timestamps && a.timestamps.start && a.timestamps.end ? a.timestamps.start : "")).join("/")}`;
+    const shape = `${activities.map((a) => a.type).join(",")}|${inVoice}|${cfg.customText}|${cfg.appName}|${cfg.imageId}|${countdownEnd() || ""}|${activities.map((a) => (a.timestamps && a.timestamps.start && a.timestamps.end ? a.timestamps.start : "")).join("/")}|${activities.map((a) => (a.assets ? a.assets.large_image : "")).join("/")}`;
     if (shape !== lastPresenceShape || DEBUG) {
       lastPresenceShape = shape;
       if (!activities.length) {
@@ -735,7 +739,6 @@ function refreshPresence() {
   }
 }
 
-// Fetches the application's name and image once (retries every 10 min on failure).
 // Each card's application: its public name and uploaded pictures.
 function appTargets() {
   const targets = [];
@@ -744,9 +747,11 @@ function appTargets() {
       label: "card 1",
       appId: activityConfig.appId,
       image: ACTIVITY_IMAGE,
-      apply(info, asset) {
-        if (info.name && !process.env.ACTIVITY_NAME) activityConfig.appName = info.name;
-        if (asset) activityConfig.imageId = asset.id;
+      setName(name) {
+        if (!process.env.ACTIVITY_NAME) activityConfig.appName = name;
+      },
+      setImage(id) {
+        activityConfig.imageId = id;
       },
     });
   }
@@ -756,50 +761,82 @@ function appTargets() {
       label: "card 2",
       appId: second.appId,
       image: CARD2_IMAGE,
-      apply(info, asset) {
-        if (info.name && !process.env.CARD2_NAME) second.name = info.name;
-        if (asset) second.imageId = asset.id;
+      setName(name) {
+        if (!process.env.CARD2_NAME) second.name = name;
+      },
+      setImage(id) {
+        second.imageId = id;
       },
     });
   }
   return targets;
 }
-const appLookedUp = new Set(); // application IDs read successfully
 
-async function lookupApplication() {
+const appSummary = new Map(); // application ID → what was last found there
+let appLookupBusy = false;
+
+// Reads each application's name and pictures from Discord's public pages, and
+// keeps re-reading: a picture uploaded later (Discord can take several minutes
+// to publish one) shows up without a restart. Returns one line per card.
+async function lookupApplication(force = false) {
   const wantsCard = activityConfig.mode === "both" || activityConfig.mode === "rich";
-  if (!wantsCard || appLookupDone) return;
-  const pending = appTargets().filter((t) => !appLookedUp.has(t.appId));
-  if (!pending.length) {
-    appLookupDone = true;
-    return;
-  }
-  if (Date.now() - appLookupAt < 600000) return;
+  const targets = appTargets();
+  if (!wantsCard || !targets.length || appLookupBusy) return [];
+  const complete = targets.every((t) => (appSummary.get(t.appId) || {}).hasImage);
+  // Everything found: look again every 15 min. Something missing: every 5 min.
+  if (!force && Date.now() - appLookupAt < (complete ? APP_RECHECK : Math.min(APP_RECHECK, 300000))) return [];
   appLookupAt = Date.now();
-  for (const target of pending) {
-    try {
-      const info = await fetchApplication(target.appId);
-      const asset = pickAsset(info.assets, target.image);
-      target.apply(info, asset);
-
-      if (info.errors.length) {
-        log(`⚠️ Could not read application ${target.appId} (${target.label}) from Discord (${info.errors.join("; ")}) — will retry later`);
-      } else {
-        appLookedUp.add(target.appId);
-        log(
-          `🖼️ Application "${info.name || "?"}" (${target.label}): ` +
-            (asset
-              ? `using image "${asset.name}"` +
-                (info.assets.length > 1 ? ` (others: ${info.assets.filter((a) => a !== asset).map((a) => a.name).join(", ")})` : "")
-              : "no images uploaded — the card will show without a picture. " +
-                "Add one in the Developer Portal > your app > Rich Presence > Art Assets.")
-        );
+  appLookupBusy = true;
+  const lines = [];
+  try {
+    for (const target of targets) {
+      let line;
+      let hasImage = (appSummary.get(target.appId) || {}).hasImage || false;
+      try {
+        const info = await fetchApplication(target.appId);
+        if (info.name) target.setName(info.name);
+        const imagesRead = !info.errors.some((e) => e.startsWith("images:"));
+        const asset = imagesRead ? pickAsset(info.assets, target.image) : null;
+        if (imagesRead) {
+          target.setImage(asset ? asset.id : null);
+          hasImage = !!asset;
+        }
+        if (info.errors.length) {
+          line = `⚠️ ${target.label}: could not read application ${target.appId} from Discord (${info.errors.join("; ")}) — will retry`;
+        } else if (asset) {
+          const others = info.assets.filter((x) => x !== asset).map((x) => x.name);
+          line = `🖼️ ${target.label}: application "${info.name || "?"}", picture "${asset.name}"${others.length ? ` (others: ${others.join(", ")})` : ""}`;
+        } else {
+          line =
+            `🖼️ ${target.label}: application "${info.name || "?"}" has no Rich Presence pictures, so the card shows without one. ` +
+            "Upload one in the Developer Portal > the app > Rich Presence > Art Assets (the App Icon does not count).";
+        }
+      } catch (err) {
+        line = `⚠️ ${target.label}: application lookup failed: ${safeErr(err)}`;
       }
-    } catch (err) {
-      log(`⚠️ Application lookup failed (${target.label}): ${safeErr(err)}`);
+      lines.push(line);
+      const before = appSummary.get(target.appId);
+      if (!before || before.line !== line) log(line); // only when something changed
+      appSummary.set(target.appId, { line, hasImage });
     }
+  } finally {
+    appLookupBusy = false;
   }
   refreshPresence();
+  return lines;
+}
+
+// --- Day counter --------------------------------------------------------------
+// "Day 1" is a calendar day (local time); the number goes up at each midnight.
+function dayOneStart() {
+  const saved = vcTimer.get("dayOne"); // set from chat with !day
+  if (Number.isFinite(saved)) return dayStart(saved);
+  const fromEnv = parseWhen(process.env.DAY_ONE || DAY_ONE_DEFAULT, COUNTDOWN_OFFSET);
+  return dayStart(fromEnv === null ? parseWhen(DAY_ONE_DEFAULT, COUNTDOWN_OFFSET) : fromEnv);
+}
+
+function dayNumber(now = Date.now()) {
+  return Math.max(1, Math.round((dayStart(now) - dayOneStart()) / 86400000) + 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -841,6 +878,8 @@ async function handleCommand(msg) {
         `${COMMAND_PREFIX}activity <text> — change the custom status ({total}, {stay}, {channel} are filled in)`,
         `${COMMAND_PREFIX}activity off | on | reset — hide / show the activity, or restore the default text`,
         `${COMMAND_PREFIX}countdown 31-12-2026 23:59 — the card's clock counts down to that moment; ${COMMAND_PREFIX}countdown off — count up again`,
+        `${COMMAND_PREFIX}reload — read the cards' applications again (new pictures) and send the cards again`,
+        `${COMMAND_PREFIX}day — which day the counter is on; ${COMMAND_PREFIX}day 5 — make today day 5`,
         `${COMMAND_PREFIX}help — this message`,
       ].join("\n")
     );
@@ -850,6 +889,31 @@ async function handleCommand(msg) {
   if (cmd === "vcs" || cmd === "vc" || cmd === "channels") {
     const lines = listVoiceChannels();
     await reply(msg, lines.length ? `Voice channels:\n${lines.join("\n")}` : "No voice channels found.");
+    return;
+  }
+
+  if (cmd === "reload" || cmd === "restart") {
+    const lines = await lookupApplication(true);
+    lastPresence = null; // send the cards again even if nothing changed
+    refreshPresence();
+    await reply(msg, [...(lines.length ? lines : ["No card applications to read."]), "Cards sent again."].join("\n"));
+    return;
+  }
+
+  if (cmd === "day") {
+    const word = arg.toLowerCase();
+    if (word === "reset") {
+      vcTimer.set("dayOne", null);
+    } else if (arg) {
+      const n = /^\d{1,6}$/.test(arg) ? parseInt(arg, 10) : 0;
+      if (n < 1) {
+        await reply(msg, `Usage: ${COMMAND_PREFIX}day 5 (makes today day 5), ${COMMAND_PREFIX}day reset, or just ${COMMAND_PREFIX}day`);
+        return;
+      }
+      vcTimer.set("dayOne", dayStart() - (n - 1) * 86400000);
+    }
+    refreshPresence();
+    await reply(msg, `Today is day ${dayNumber()}. Day 1 was ${whenText(dayOneStart()).slice(0, 10)}. The number goes up at midnight.`);
     return;
   }
 

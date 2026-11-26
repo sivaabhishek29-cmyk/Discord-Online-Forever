@@ -211,5 +211,8 @@ console.log("TIMER TESTS PASSED");
   assert.strictEqual(outOfVc.length, 3, "the clock bar shows out of voice too");
   assert.deepStrictEqual(outOfVc[2].timestamps, { start: 5000, end: 5000 + exact });
   assert.strictEqual(buildActivities({ ...base, card2: clockBar }, { ...st, dayStart: null, totalMs: 0 }).length, 2, "no bar without a day start");
+  // {day} in the text.
+  const dayCard = buildActivities({ ...base, card2: { ...clockBar, state: "Day {day}" } }, { ...st, dayStart: 5000, day: 12, totalMs: 0 })[2];
+  assert.strictEqual(dayCard.state, "Day 12");
   console.log("TWO-CARD TESTS PASSED");
 }

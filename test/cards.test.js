@@ -11,18 +11,34 @@ const HOUR = 3600000;
 // One-hour levels, and a saved total 4 seconds short of finishing level 3.
 const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "cards-test-"));
 fs.writeFileSync(path.join(DATA_DIR, "vc-timer.json"), JSON.stringify({ totalMs: 3 * HOUR - 4000 }));
-h.start({ DATA_DIR, CARD2_BAR: "level", LEVEL_TIME: "1:00:00", ACTIVITY_REFRESH: "5000", WATCHDOG_INTERVAL: "100000" });
+h.start({
+  DATA_DIR, CARD2_BAR: "level", CARD2_STATE: "Level {level} · Day {day}", LEVEL_TIME: "1:00:00",
+  ACTIVITY_REFRESH: "5000", WATCHDOG_INTERVAL: "100000",
+});
 
 // Discord's public application pages: each card has its own application.
 const APP1 = "1575262829869662312";
 const APP2 = "1575297984684363846";
 const lookedUp = [];
+let pictureUploaded = false; // the second application's picture is uploaded later
+const replies = [];
+require("eris").Client.prototype.createMessage = async (channelId, content) => { replies.push(content); return { id: "1" }; };
+let nextId = 9000;
+const say = (content) =>
+  h.dispatch("MESSAGE_CREATE", {
+    id: String(++nextId), channel_id: "444444444444444444", content, type: 0, timestamp: new Date().toISOString(),
+    author: { id: h.ME, username: "me", discriminator: "0" },
+    mentions: [], mention_roles: [], attachments: [], embeds: [],
+  });
+// Day 1 is 26 November 2026, India time; the number goes up at each India midnight.
+const indiaDay = (ms) => Math.floor((ms + 5.5 * 3600000) / 86400000);
+const today = () => Math.max(1, indiaDay(Date.now()) - indiaDay(Date.UTC(2026, 10, 26, 0, 0)) + 1);
 global.fetch = async (url) => {
   lookedUp.push(String(url));
   const json = (body) => ({ ok: true, status: 200, json: async () => body });
   if (url.includes(`/applications/${APP1}/rpc`)) return json({ name: "Main App" });
   if (url.includes(`/applications/${APP2}/rpc`)) return json({ name: "Shark App" });
-  if (url.includes(`/applications/${APP2}/assets`)) return json([{ id: "900", name: "shark" }]);
+  if (url.includes(`/applications/${APP2}/assets`)) return json(pictureUploaded ? [{ id: "900", name: "shark" }] : []);
   return json([]);
 };
 
@@ -59,14 +75,33 @@ h.finish("CARDS TEST", async () => {
   assert.strictEqual(second.application_id, APP2);
   assert.strictEqual(second.name, "Shark App");
   assert.strictEqual(second.details, "Activity Intervel 🦈");
-  assert.strictEqual(second.state, "Level 3");
-  assert.deepStrictEqual(second.assets, { large_image: "900", large_text: "Shark App" });
+  assert.strictEqual(second.state, `Level 3 · Day ${today()}`);
   assert(lookedUp.every((u) => u.startsWith("https://discord.com/api/")), "only Discord's public pages are read");
-  assert(h.logs.some((l) => l.includes('🖼️ Application "Shark App" (card 2): using image "shark"')));
+
+  // No picture uploaded yet: the card goes out without one, and the log says why.
+  assert(!("assets" in second), "no picture yet");
+  assert(h.logs.some((l) => l.includes('🖼️ card 2: application "Shark App" has no Rich Presence pictures')), "says the picture is missing");
+
+  // The picture is uploaded afterwards → !reload picks it up, no restart needed.
+  pictureUploaded = true;
+  say("!reload");
+  await h.until(() => replies.some((r) => r.includes('🖼️ card 2: application "Shark App", picture "shark"') && r.endsWith("Cards sent again.")), "!reload reply");
+  await h.until(() => cards().length === 2 && cards()[1].assets, "picture on card 2", 8000);
+  assert.deepStrictEqual(cards()[1].assets, { large_image: "900", large_text: "Shark App" });
+  assert.deepStrictEqual(cards()[1].timestamps, second.timestamps, "the bar carries on where it was");
+
+  // Day counter: !day shows it, !day 5 makes today day 5.
+  say("!day");
+  await h.until(() => replies.some((r) => r.startsWith(`Today is day ${today()}. Day 1 was `)), "!day reply");
+  say("!day 5");
+  await h.until(() => replies.some((r) => r.startsWith("Today is day 5. Day 1 was ")), "!day 5 reply");
+  await h.until(() => cards().length === 2 && /· Day 5$/.test(cards()[1].state), "day 5 on the card", 8000);
+  say("!day zero");
+  await h.until(() => replies.some((r) => r.startsWith("Usage: !day 5")), "bad day reply");
   assert.strictEqual(second.timestamps.end - second.timestamps.start, HOUR);
   const into = joinedAt - second.timestamps.start;
   assert(Math.abs(into - (HOUR - 4000)) < 1500, `bar starts 59:56 in (got ${into}ms)`);
-  assert(h.logs.some((l) => /card "Listening to Shark App" — Activity Intervel 🦈 \/ Level 3 .*bar 1h 0m long/.test(l)), "the second card is logged");
+  assert(h.logs.some((l) => /card "Listening to Shark App" — Activity Intervel 🦈 \/ Level 3 · Day \d+ .*bar 1h 0m long/.test(l)), "the second card is logged");
 
   // Discord's own report: both cards → quiet; only one → a clear warning.
   SESSIONS([{ type: 4, name: "Custom Status", state: "x" }, { type: 5, name: "App", application_id: "1" }, { type: 2, name: "Lounge" }]);
@@ -76,7 +111,7 @@ h.finish("CARDS TEST", async () => {
   await h.until(() => h.logs.some((l) => l.includes("Discord is showing 1 of the 2 cards that were sent. Check that CARD2_APPLICATION_ID")), "dropped-card warning");
 
   // The level finishes: number goes up and the bar starts again where it ended.
-  await h.until(() => cards().length === 2 && cards()[1].state === "Level 4", "level up", 12000);
+  await h.until(() => cards().length === 2 && /^Level 4 · /.test(cards()[1].state), "level up", 12000);
   assert.strictEqual(cards()[1].details, "Activity Intervel 🦈");
   assert.strictEqual(cards()[1].timestamps.start, second.timestamps.end);
   assert.strictEqual(cards()[1].timestamps.end - cards()[1].timestamps.start, HOUR);

@@ -60,7 +60,7 @@ By default the account shows three things:
 
 - a **custom status**: `🎧 In VC for 09d-14h-47m`
 - a **Rich Presence card** from your Discord application (`APPLICATION_ID`): `Competing in <app name>`, `Chilling with Alya 🩷🎀`, `dev Lovelycrxshx ♠`, a clock that reads the time of day in India, ticking every second, and two buttons (`Self-run acc, not a real user`, `Contact Admin`) that open a Discord profile
-- a **second card** from a second application (`CARD2_APPLICATION_ID`): `Listening to <app name>`, `Activity Intervel 🦈`, `Level 10`, and a bar such as `05:35:12 ▬●───── 23:56:04` that moves by itself, whose left-hand figure is the time of day in India
+- a **second card** from a second application (`CARD2_APPLICATION_ID`): `Listening to <app name>`, `Activity Intervel 🦈`, `Day 1`, and a bar such as `05:35:12 ▬●───── 23:56:04` that moves by itself, whose left-hand figure is the time of day in India
 
 The clock is drawn by Discord on the viewer's screen, so it moves every second without the app sending anything. The custom status is re-sent once a minute with the current days, hours and minutes. `ACTIVITY_REFRESH` can lower that to 5000 (every 5 seconds, with seconds shown: `09d-14h-47m-54s`), which is the fastest Discord permits, but constant status changes make the account look automated.
 
@@ -77,13 +77,17 @@ The bar is the kind Discord draws for a song: it gets a start and an end time on
 
 `LEVEL_TIME` is the bar's full length, the figure on its right. The default is `23:56:04`, the exact length of a day (one full turn of the Earth) rather than a rounded 24 hours; with the `time` bar that means it sits full for the last four minutes before midnight. `{level}` counts completed stretches of `LEVEL_TIME` in voice, plus one.
 
-The card's title and picture come from its own application, the same way as the first card's (`CARD2_IMAGE` picks an image by name). Text can use `{level}`, `{level_time}`, `{channel}`, `{server}` and `{total}`; a line set to nothing is not shown. `CARD2=off` removes the card. Small views such as the member list show only one card; the full profile shows both. If the log says `Discord is showing 1 of the 2 cards`, Discord refused the second one.
+`{day}` is a day counter: `DAY_ONE` (default `26-11-2026`) is day 1 and the number goes up at each local midnight. `!day` shows it, `!day 5` makes today day 5, `!day reset` goes back to `DAY_ONE`.
+
+The card's title and picture come from its own application, the same way as the first card's (`CARD2_IMAGE` picks an image by name). Text can use `{day}`, `{level}`, `{level_time}`, `{channel}`, `{server}` and `{total}`; a line set to nothing is not shown. `CARD2=off` removes the card. Small views such as the member list show only one card; the full profile shows both. If the log says `Discord is showing 1 of the 2 cards`, Discord refused the second one.
 
 ### Countdown
 
 The card's clock can count **down** to a date and time instead of counting up. From the account itself send `!countdown 31-12-2026 23:59` (India time unless you add a zone such as `+00:00`), or set the `COUNTDOWN_TO` variable. `!countdown` shows what is running, `!countdown off` goes back to counting up. When the moment passes, the clock counts up again by itself.
 
-The card's picture is the first image uploaded to the application (Developer Portal → your app → Rich Presence → Art Assets). Set `ACTIVITY_IMAGE` to an asset name to pick another. With no images uploaded the card shows without a picture.
+The card's picture is the first image uploaded to the application (Developer Portal → your app → Rich Presence → Art Assets). The App Icon on the General Information page is a different thing and is not used. Set `ACTIVITY_IMAGE` to an asset name to pick another. With no images uploaded the card shows without a picture.
+
+The applications are read again every 15 minutes (every 5 while a picture is missing), so a picture uploaded later appears by itself; Discord can take several minutes to publish a new one. `!reload` from the account reads them straight away, says what it found for each card, and sends the cards again.
 
 The card can have up to two link buttons (`BUTTON1_LABEL` + `BUTTON1_URL`, `BUTTON2_LABEL` + `BUTTON2_URL`). Discord does not show your own buttons to you: check them from another account. A link to a Discord profile is `https://discord.com/users/<user id>`.
 
@@ -140,7 +144,8 @@ To get the link: in your own server, open the channel's settings → **Integrati
 | `CARD2_NAME` | no | app's name | Title of the second card |
 | `CARD2_IMAGE` | no | first image | Name of the second application's image to show |
 | `CARD2_DETAILS` | no | `Activity Intervel 🦈` | First line of the second card |
-| `CARD2_STATE` | no | `Level {level}` | Second line of the second card (empty for none) |
+| `CARD2_STATE` | no | `Day {day}` | Second line of the second card (empty for none) |
+| `DAY_ONE` | no | `26-11-2026` | The date that counts as day 1 for `{day}` |
 | `CARD2_BAR` | no | `time` | What the bar follows: `time` (time of day) or `level` (voice time) |
 | `LEVEL_TIME` | no | `23:56:04` | Full length of the bar (and voice time per level), as `HH:MM:SS` |
 | `ACTIVITY_REFRESH` | no | `60000` | Ms between updates of the time shown as text (5000 is the minimum; below 30000 the text also shows seconds) |
@@ -165,6 +170,8 @@ Send these from your own account (DM or any text channel). Only your own message
 - `!status` — show current VC / target / connection state
 - `!vcs` — list all voice channels with IDs
 - `!timer` — time in VC for this stay and in total
+- `!reload` — read the cards' applications again (new pictures) and send the cards again
+- `!day` / `!day 5` / `!day reset` — show the day counter, make today day 5, or go back to `DAY_ONE`
 - `!countdown 31-12-2026 23:59` / `!countdown` / `!countdown off` — make the card's clock count down, show it, or stop it
 - `!activity <text>` — change the custom status text (kept across restarts)
 - `!activity off` / `!activity on` / `!activity reset` — hide it, show it, or restore the default text
