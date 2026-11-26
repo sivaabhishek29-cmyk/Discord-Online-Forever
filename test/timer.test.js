@@ -4,7 +4,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { createVcTimer, formatDuration, formatStopwatch } = require("../vc_timer.js");
-const { parseWhen, cleanButtons, buildActivities, pickAsset, fill, describeSessions } = require("../activity.js");
+const { parseWhen, cleanButtons, buildActivities, pickAsset, fill, describeSessions, cleanStreamUrl } = require("../activity.js");
 
 const MIN = 60000;
 const HOUR = 60 * MIN;
@@ -88,6 +88,26 @@ assert.deepStrictEqual(buildActivities({ ...cfg, mode: "rich", cardType: 3 }, st
 assert.deepStrictEqual(buildActivities({ ...cfg, mode: "off" }, state), []);
 assert.deepStrictEqual(buildActivities({ ...cfg, appId: null }, state).map((a) => a.type), [4], "no card without an application");
 assert(buildActivities({ ...cfg, customText: "x".repeat(300) }, state)[0].state.length <= 128, "text is clipped to Discord's limit");
+
+// purple dot: a "Streaming" entry with a Twitch or YouTube link, added last
+{
+  const stream = { url: "https://www.twitch.tv/discord", title: "Live 24/7 🔴 {channel}" };
+  const acts = buildActivities({ ...cfg, stream }, state);
+  const plain = buildActivities(cfg, state);
+  assert.deepStrictEqual(acts.slice(0, -1), plain, "the other entries are untouched");
+  assert.deepStrictEqual(acts[acts.length - 1], {
+    name: "Twitch", type: 1, url: "https://www.twitch.tv/discord", details: `Live 24/7 🔴 ${state.channelName || "voice"}`,
+  });
+  assert.strictEqual(buildActivities({ ...cfg, stream: { url: "https://youtube.com/watch?v=abc", title: "" } }, state).pop().name, "YouTube");
+  assert(!("details" in buildActivities({ ...cfg, stream: { url: "https://twitch.tv/x", title: "" } }, state).pop()), "an empty title is left out");
+  assert(!buildActivities({ ...cfg, stream: { url: "https://example.com/x", title: "t" } }, state).some((a) => a.type === 1), "other sites cannot turn the dot purple");
+  assert.deepStrictEqual(buildActivities({ ...cfg, mode: "off", stream }, state), []);
+  assert.deepStrictEqual(buildActivities({ ...cfg, mode: "custom", stream }, state).map((a) => a.type), [4, 1]);
+  assert.strictEqual(cleanStreamUrl(" https://www.twitch.tv/discord "), "https://www.twitch.tv/discord");
+  for (const bad of ["", "twitch.tv/x", "http://twitch.tv/x", "https://twitch.tv/", "https://twitch.tv.evil.com/x", "https://nottwitch.tv/x", "https://twitch.tv/a b"]) {
+    assert.strictEqual(cleanStreamUrl(bad), null, bad);
+  }
+}
 
 // what Discord reports back, summarised
 assert.deepStrictEqual(

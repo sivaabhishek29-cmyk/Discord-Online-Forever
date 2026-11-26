@@ -42,7 +42,7 @@ global.fetch = async (url) => {
   return json([]);
 };
 
-const cards = () => (h.shownActivities() || []).filter((a) => a.type !== 4);
+const cards = () => (h.shownActivities() || []).filter((a) => a.type !== 4 && a.type !== 1);
 const SESSIONS = (activities) => h.dispatch("SESSIONS_REPLACE", [
   { session_id: "gateway-session", status: "online", client_info: { client: "web", os: "linux" }, activities },
 ]);
