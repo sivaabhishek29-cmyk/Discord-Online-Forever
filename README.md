@@ -56,6 +56,14 @@ After joining, the account asks Discord to mark it as streaming, which puts the 
 
 Announcing a stream that carries nothing is one more automated action that Discord can notice on a user account.
 
+## Purple streaming dot
+
+The account also shows a "Streaming" entry, which turns the dot on its profile picture purple. Discord only does this for a Twitch or YouTube link, so the entry carries one (`STREAM_URL`); people who tap **Watch** are taken to that link.
+
+- `STREAM_TITLE` is the text shown after "Streaming".
+- `!purple` shows whether it is on; `!purple off` / `!purple on` switch it. `STREAMING=off` removes the feature.
+- If Discord does not keep the entry, the log says `Discord dropped the "Streaming" entry`.
+
 ## VC timer
 
 The app counts how long the account has been in voice and keeps a running total.
@@ -129,6 +137,9 @@ To get the link: in your own server, open the channel's settings → **Integrati
 | `SELF_MUTE` | no | `false` | `false` = mic shown on, `true` = shown muted |
 | `SELF_DEAF` | no | `true` | `true` = shown deafened, `false` = not deafened |
 | `LIVE` | no | `on` | Show the LIVE (streaming) badge in the voice channel. `off` removes it |
+| `STREAMING` | no | `on` | Purple streaming dot on the profile picture. `off` keeps the normal dot |
+| `STREAM_URL` | no | `https://www.twitch.tv/discord` | Link behind the Watch button. Must be a Twitch or YouTube link |
+| `STREAM_TITLE` | no | `Live 24/7 🔴` | Text shown after "Streaming" |
 | `LIVE_RETRY` | no | `120000` | Ms to wait before asking for the badge again when it is not showing |
 | `AUTO_REJOIN` | no | `true` | Rejoin when kicked/moved/disconnected |
 | `REJOIN_DELAY` | no | `5000` | Ms to wait before rejoining |
@@ -182,6 +193,7 @@ Send these from your own account (DM or any text channel). Only your own message
 - `!leave` — leave VC and pause auto-rejoin until next `!join`
 - `!status` — show current VC / target / connection state
 - `!vcs` — list all voice channels with IDs
+- `!purple` / `!purple off` / `!purple on` — is the purple streaming dot on, switch it
 - `!live` / `!live off` / `!live on` — is the LIVE badge showing, remove it, ask for it again
 - `!timer` — time in VC for this stay and in total
 - `!reload` — read the cards' applications again (new pictures) and send the cards again

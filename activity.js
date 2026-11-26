@@ -48,6 +48,14 @@ function pickAsset(assets, wantedName) {
 // Wording Discord puts in front of the card's title.
 const CARD_TYPES = { playing: 0, listening: 2, watching: 3, competing: 5 };
 const CARD_WORDING = { 0: "Playing", 2: "Listening to", 3: "Watching", 5: "Competing in" };
+const WORDING = { ...CARD_WORDING, 1: "Streaming" };
+
+// Discord only turns the dot purple for a stream link on Twitch or YouTube.
+const DEFAULT_STREAM_URL = "https://www.twitch.tv/discord";
+function cleanStreamUrl(url) {
+  const s = String(url || "").trim();
+  return /^https:\/\/(www\.)?(twitch\.tv|youtube\.com)\/[^\s/]\S*$/i.test(s) && s.length <= 512 ? s : null;
+}
 
 // One short line per session, from what Discord itself reports for the account.
 function describeSessions(sessions, ownSessionId) {
@@ -57,7 +65,7 @@ function describeSessions(sessions, ownSessionId) {
       const info = s.client_info || {};
       const where = s.session_id === ownSessionId ? "this app" : [info.client, info.os].filter(Boolean).join("/") || "other device";
       const acts = (s.activities || []).map((a) =>
-        a.type === 4 ? `status "${a.state || ""}"` : `${CARD_WORDING[a.type] || "Activity"} ${a.name}`
+        a.type === 4 ? `status "${a.state || ""}"` : `${WORDING[a.type] || "Activity"} ${a.name}`
       );
       return `[${where}] ${s.status}: ${acts.length ? acts.join(" + ") : "no activity"}`;
     });
@@ -179,7 +187,18 @@ function buildActivities(cfg, state) {
     activities.push(bar);
   }
 
+  // "Streaming" entry: this is what turns the dot on the profile picture purple.
+  // It is not tied to an application and carries no picture or clock.
+  const stream = cfg.stream;
+  const streamUrl = stream ? cleanStreamUrl(stream.url) : null;
+  if (stream && streamUrl && cfg.mode !== "off") {
+    const live = { name: /youtube/i.test(streamUrl) ? "YouTube" : "Twitch", type: 1, url: streamUrl };
+    const title = clamp(fill(stream.title || "", values));
+    if (title) live.details = title;
+    activities.push(live);
+  }
+
   return activities;
 }
 
-module.exports = { parseWhen, cleanButtons, buildActivities, fetchApplication, pickAsset, fill, describeSessions, CARD_TYPES, CARD_WORDING };
+module.exports = { parseWhen, cleanButtons, buildActivities, fetchApplication, pickAsset, fill, describeSessions, cleanStreamUrl, DEFAULT_STREAM_URL, CARD_TYPES, CARD_WORDING, WORDING };
