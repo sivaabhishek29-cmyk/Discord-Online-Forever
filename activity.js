@@ -111,6 +111,7 @@ function buildActivities(cfg, state) {
     channel: state.channelName || "voice",
     server: state.serverName || "",
     level: "",
+    day: state.day ? String(state.day) : "",
   };
   const activities = [];
 
