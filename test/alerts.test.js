@@ -112,7 +112,7 @@ h.finish("ALERTS TEST", async () => {
   const india = new Date(Date.now() + 5.5 * 3600000);
   const timeOfDay = ((india.getUTCHours() * 60 + india.getUTCMinutes()) * 60 + india.getUTCSeconds()) * 1000;
   assert(Math.abs(Date.now() - bar.timestamps.start - timeOfDay) < 2000, "the bar reads the time in India");
-  assert.strictEqual(bar.details, "Activity Intervel 🦈");
+  assert.strictEqual(bar.details, "Active Intervel 🦈");
   assert(/^Day \d+$/.test(bar.state), `line 2 counts days: ${bar.state}`);
   assert.strictEqual(bar.application_id, "1575297984684363846");
   assert.strictEqual(bar.timestamps.end - bar.timestamps.start, ((23 * 60 + 56) * 60 + 4) * 1000);

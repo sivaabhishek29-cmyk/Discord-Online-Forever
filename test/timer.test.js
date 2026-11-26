@@ -189,8 +189,8 @@ console.log("TIMER TESTS PASSED");
   assert.strictEqual(watching.application_id, "77");
   assert.strictEqual(watching.details, "Voice level 1");
   // An empty line is left out; a picture needs the card's own application.
-  const bare = buildActivities({ ...base, card2: { ...card2, details: "Activity Intervel 🦈", state: "", imageId: "9" } }, { ...st, totalMs: 0 })[2];
-  assert.strictEqual(bare.details, "Activity Intervel 🦈");
+  const bare = buildActivities({ ...base, card2: { ...card2, details: "Active Intervel 🦈", state: "", imageId: "9" } }, { ...st, totalMs: 0 })[2];
+  assert.strictEqual(bare.details, "Active Intervel 🦈");
   assert(!("state" in bare) && !("assets" in bare));
   const pictured = buildActivities({ ...base, card2: { ...card2, name: "Shark", appId: "77", imageId: "9" } }, { ...st, totalMs: 0 })[2];
   assert.deepStrictEqual(pictured.assets, { large_image: "9", large_text: "Shark" });
