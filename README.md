@@ -60,7 +60,7 @@ By default the account shows three things:
 
 - a **custom status**: `🎧 In VC for 09d-14h-47m`
 - a **Rich Presence card** from your Discord application (`APPLICATION_ID`): `Competing in <app name>`, `Chilling with Alya 🩷🎀`, `dev Lovelycrxshx ♠`, a clock that reads the time of day in India, ticking every second, and two buttons (`Self-run acc, not a real user`, `Contact Admin`) that open a Discord profile
-- a **second card** with a level bar: `Listening to <voice channel>`, `Voice level 10`, and a bar such as `14:47:54 ▬▬▬●─── 24:00:00` that moves by itself
+- a **second card** from a second application (`CARD2_APPLICATION_ID`): `Listening to <app name>`, `Activity Intervel 🦈`, `Level 10`, and a bar such as `14:47:54 ▬▬▬●─── 23:56:04` that moves by itself
 
 The clock is drawn by Discord on the viewer's screen, so it moves every second without the app sending anything. The custom status is re-sent once a minute with the current days, hours and minutes. `ACTIVITY_REFRESH` can lower that to 5000 (every 5 seconds, with seconds shown: `09d-14h-47m-54s`), which is the fastest Discord permits, but constant status changes make the account look automated.
 
@@ -70,7 +70,7 @@ The clock is drawn by Discord on the viewer's screen, so it moves every second w
 
 ### Second card (level bar)
 
-Every `LEVEL_HOURS` (default 24) of voice time is one level. The bar is the kind Discord draws for a song: it gets a start and an end time once and then moves on the viewer's screen, so nothing is re-sent until the level changes. It is only shown while the account is in voice, because the bar cannot be paused, and it only exists for the wordings `listening` and `watching`. Text can use `{level}`, `{level_hours}`, `{channel}`, `{server}` and `{total}`. `CARD2=off` removes the card. Small views such as the member list show only one card; the full profile shows both. If the log says `Discord is showing 1 of the 2 cards`, Discord refused the second one.
+Every `LEVEL_TIME` of voice time is one level. The default is `23:56:04`, the exact length of a day (one full turn of the Earth) rather than a rounded 24 hours. The card's title and picture come from its own application, the same way as the first card's (`CARD2_IMAGE` picks an image by name). The bar is the kind Discord draws for a song: it gets a start and an end time once and then moves on the viewer's screen, so nothing is re-sent until the level changes. It is only shown while the account is in voice, because the bar cannot be paused, and it only exists for the wordings `listening` and `watching`. Text can use `{level}`, `{level_time}`, `{channel}`, `{server}` and `{total}`; a line set to nothing is not shown. `CARD2=off` removes the card. Small views such as the member list show only one card; the full profile shows both. If the log says `Discord is showing 1 of the 2 cards`, Discord refused the second one.
 
 ### Countdown
 
@@ -129,11 +129,12 @@ To get the link: in your own server, open the channel's settings → **Integrati
 | `TIME_OFFSET` | no | `+05:30` | Time zone for the time-of-day clock and for countdown dates |
 | `CARD2` | no | `on` | `off` removes the second card |
 | `CARD2_TYPE` | no | `listening` | Wording of the second card: `listening` or `watching` |
-| `CARD2_NAME` | no | `{channel}` | Title of the second card |
-| `CARD2_DETAILS` | no | `Voice level {level}` | First line of the second card |
-| `CARD2_STATE` | no | `New level every {level_hours}h in voice` | Second line of the second card |
-| `LEVEL_HOURS` | no | `24` | Hours of voice time per level (the length of the bar) |
-| `CARD2_APPLICATION_ID` | no | — | Optional Discord application to attach the second card to |
+| `CARD2_APPLICATION_ID` | no | `1575297984684363846` | Discord application of the second card |
+| `CARD2_NAME` | no | app's name | Title of the second card |
+| `CARD2_IMAGE` | no | first image | Name of the second application's image to show |
+| `CARD2_DETAILS` | no | `Activity Intervel 🦈` | First line of the second card |
+| `CARD2_STATE` | no | `Level {level}` | Second line of the second card (empty for none) |
+| `LEVEL_TIME` | no | `23:56:04` | Voice time per level = the length of the bar, as `HH:MM:SS` |
 | `ACTIVITY_REFRESH` | no | `60000` | Ms between updates of the time shown as text (5000 is the minimum; below 30000 the text also shows seconds) |
 | `COUNTDOWN_TO` | no | — | Date and time the card's clock counts down to, e.g. `31-12-2026 23:59` |
 | `ALERT_WEBHOOK_URL` | no | — | Discord channel webhook link for alerts (see Alerts). Keep it secret |

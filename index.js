@@ -116,23 +116,41 @@ const activityConfig = {
 };
 // Second card with a self-moving level bar ("off" removes it).
 const CARD2_ON = !/^(off|false|0|no)$/i.test((process.env.CARD2 || "").trim());
-const CARD2_APP = (process.env.CARD2_APPLICATION_ID || "").trim();
+const CARD2_APP = (process.env.CARD2_APPLICATION_ID || "1575297984684363846").trim();
+// "23:56:04", "23:56" or a plain number of hours → milliseconds (0 if unreadable).
+function parseSpan(text) {
+  const m = /^\s*(\d{1,3})(?::(\d{1,2}))?(?::(\d{1,2}))?\s*$/.exec(String(text || ""));
+  if (!m || +(m[2] || 0) > 59 || +(m[3] || 0) > 59) return 0;
+  return ((+m[1] * 60 + +(m[2] || 0)) * 60 + +(m[3] || 0)) * 1000;
+}
+// Length of the bar = one level. Default 23:56:04, the exact length of a day
+// (one full turn of the Earth), not a rounded 24 hours.
+const LEVEL_MS = parseSpan(process.env.LEVEL_TIME) || parseSpan(process.env.LEVEL_HOURS) || 86164000;
 activityConfig.card2 = CARD2_ON
   ? {
       type: (process.env.CARD2_TYPE || "").trim().toLowerCase() === "watching" ? 3 : 2,
-      name: process.env.CARD2_NAME || "{channel}",
-      details: process.env.CARD2_DETAILS || "Voice level {level}",
-      state: process.env.CARD2_STATE || "New level every {level_hours}h in voice",
-      levelMs: Math.max(1, parseIntEnv(process.env.LEVEL_HOURS, 24)) * 3600000,
+      name: process.env.CARD2_NAME || null, // else the application's name, else the channel's
+      details: process.env.CARD2_DETAILS === undefined ? "Activity Intervel 🦈" : process.env.CARD2_DETAILS,
+      state: process.env.CARD2_STATE === undefined ? "Level {level}" : process.env.CARD2_STATE,
+      levelMs: LEVEL_MS,
       appId: /^\d{15,25}$/.test(CARD2_APP) ? CARD2_APP : null,
+      imageId: null, // filled in from the application's uploaded images
     }
   : null;
 if (activityConfig.card2) {
-  const hours = String(activityConfig.card2.levelMs / 3600000);
+  const totalSeconds = Math.round(LEVEL_MS / 1000);
+  const two = (n) => String(n).padStart(2, "0");
+  const span = `${two(Math.floor(totalSeconds / 3600))}:${two(Math.floor((totalSeconds % 3600) / 60))}:${two(totalSeconds % 60)}`;
+  const hours = String(Math.round((LEVEL_MS / 3600000) * 100) / 100);
   for (const key of ["name", "details", "state"]) {
-    activityConfig.card2[key] = activityConfig.card2[key].replace(/\{level_hours\}/g, hours);
+    if (activityConfig.card2[key]) {
+      activityConfig.card2[key] = activityConfig.card2[key]
+        .replace(/\{level_time\}/g, span)
+        .replace(/\{level_hours\}/g, hours);
+    }
   }
 }
+const CARD2_IMAGE = process.env.CARD2_IMAGE || "";
 const ACTIVITY_IMAGE = process.env.ACTIVITY_IMAGE || "";
 // How often the shown time is sent to Discord: once a minute. Faster makes the
 // account look automated; 5s is the floor (Discord allows 5 status changes per
@@ -627,7 +645,10 @@ function onSessions(sessions) {
     const note = `${shown}/${cardsSent}`;
     if (shown < cardsSent && cardCountWarned !== note) {
       cardCountWarned = note;
-      log(`⚠️ Discord is showing ${shown} of the ${cardsSent} cards that were sent. Set CARD2=off to go back to one card.`);
+      log(
+        `⚠️ Discord is showing ${shown} of the ${cardsSent} cards that were sent. Check that CARD2_APPLICATION_ID is ` +
+          "the second application's ID, copied in full — or set CARD2=off to go back to one card."
+      );
     }
   }
 }
@@ -687,7 +708,7 @@ function refreshPresence() {
     // Log when the kind of activity changes, not on every time tick.
     cardSent = activities.some((a) => a.application_id);
     cardsSent = activities.filter((a) => a.type !== 4).length;
-    const shape = `${activities.map((a) => a.type).join(",")}|${inVoice}|${cfg.customText}|${cfg.appName}|${cfg.imageId}|${countdownEnd() || ""}|${activities.map((a) => (a.type === 4 ? "" : a.details)).join("/")}`;
+    const shape = `${activities.map((a) => a.type).join(",")}|${inVoice}|${cfg.customText}|${cfg.appName}|${cfg.imageId}|${countdownEnd() || ""}|${activities.map((a) => (a.timestamps && a.timestamps.start && a.timestamps.end ? a.timestamps.start : "")).join("/")}`;
     if (shape !== lastPresenceShape || DEBUG) {
       lastPresenceShape = shape;
       if (!activities.length) {
@@ -696,7 +717,7 @@ function refreshPresence() {
         const parts = activities.map((a) =>
           a.type === 4
             ? `custom status "${a.emoji ? `${a.emoji.name} ` : ""}${a.state}"`
-            : `card "${CARD_WORDING[a.type]} ${a.name}" — ${a.details} / ${a.state}${a.assets ? " (with image)" : " (no image)"}` +
+            : `card "${CARD_WORDING[a.type]} ${a.name}" — ${[a.details, a.state].filter(Boolean).join(" / ")}${a.assets ? " (with image)" : " (no image)"}` +
               (a.timestamps && a.timestamps.start && a.timestamps.end
                 ? `, bar ${formatGap(a.timestamps.end - a.timestamps.start)} long`
                 : a.timestamps && a.timestamps.end
@@ -712,34 +733,70 @@ function refreshPresence() {
 }
 
 // Fetches the application's name and image once (retries every 10 min on failure).
+// Each card's application: its public name and uploaded pictures.
+function appTargets() {
+  const targets = [];
+  if (activityConfig.appId) {
+    targets.push({
+      label: "card 1",
+      appId: activityConfig.appId,
+      image: ACTIVITY_IMAGE,
+      apply(info, asset) {
+        if (info.name && !process.env.ACTIVITY_NAME) activityConfig.appName = info.name;
+        if (asset) activityConfig.imageId = asset.id;
+      },
+    });
+  }
+  const second = activityConfig.card2;
+  if (second && second.appId) {
+    targets.push({
+      label: "card 2",
+      appId: second.appId,
+      image: CARD2_IMAGE,
+      apply(info, asset) {
+        if (info.name && !process.env.CARD2_NAME) second.name = info.name;
+        if (asset) second.imageId = asset.id;
+      },
+    });
+  }
+  return targets;
+}
+const appLookedUp = new Set(); // application IDs read successfully
+
 async function lookupApplication() {
   const wantsCard = activityConfig.mode === "both" || activityConfig.mode === "rich";
-  if (!wantsCard || !activityConfig.appId || appLookupDone) return;
+  if (!wantsCard || appLookupDone) return;
+  const pending = appTargets().filter((t) => !appLookedUp.has(t.appId));
+  if (!pending.length) {
+    appLookupDone = true;
+    return;
+  }
   if (Date.now() - appLookupAt < 600000) return;
   appLookupAt = Date.now();
-  try {
-    const info = await fetchApplication(activityConfig.appId);
-    if (info.name && !process.env.ACTIVITY_NAME) activityConfig.appName = info.name;
-    const asset = pickAsset(info.assets, ACTIVITY_IMAGE);
-    if (asset) activityConfig.imageId = asset.id;
+  for (const target of pending) {
+    try {
+      const info = await fetchApplication(target.appId);
+      const asset = pickAsset(info.assets, target.image);
+      target.apply(info, asset);
 
-    if (info.errors.length) {
-      log(`⚠️ Could not read application ${activityConfig.appId} from Discord (${info.errors.join("; ")}) — will retry later`);
-    } else {
-      appLookupDone = true;
-      log(
-        `🖼️ Application "${info.name || "?"}": ` +
-          (asset
-            ? `using image "${asset.name}"` +
-              (info.assets.length > 1 ? ` (others: ${info.assets.filter((a) => a !== asset).map((a) => a.name).join(", ")})` : "")
-            : "no images uploaded — the card will show without a picture. " +
-              "Add one in the Developer Portal > your app > Rich Presence > Art Assets.")
-      );
+      if (info.errors.length) {
+        log(`⚠️ Could not read application ${target.appId} (${target.label}) from Discord (${info.errors.join("; ")}) — will retry later`);
+      } else {
+        appLookedUp.add(target.appId);
+        log(
+          `🖼️ Application "${info.name || "?"}" (${target.label}): ` +
+            (asset
+              ? `using image "${asset.name}"` +
+                (info.assets.length > 1 ? ` (others: ${info.assets.filter((a) => a !== asset).map((a) => a.name).join(", ")})` : "")
+              : "no images uploaded — the card will show without a picture. " +
+                "Add one in the Developer Portal > your app > Rich Presence > Art Assets.")
+        );
+      }
+    } catch (err) {
+      log(`⚠️ Application lookup failed (${target.label}): ${safeErr(err)}`);
     }
-    refreshPresence();
-  } catch (err) {
-    log(`⚠️ Application lookup failed: ${safeErr(err)}`);
   }
+  refreshPresence();
 }
 
 // ---------------------------------------------------------------------------
