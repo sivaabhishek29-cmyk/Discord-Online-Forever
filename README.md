@@ -45,6 +45,17 @@ Keep your Discord profile online forever **and stay in a voice channel**.
 - When the connection to Discord drops and resumes, the account is still treated as in the channel (no leave/rejoin). If Discord hands out a brand-new session, or the library gives up reconnecting, the app starts over and rejoins by itself.
 - If you join voice yourself from your phone or PC, it does not fight you: it waits and rejoins the target VC when that device leaves voice. (Discord allows one voice session per account, so the first join after a restart does take voice over from another device.)
 
+## LIVE badge
+
+After joining, the account asks Discord to mark it as streaming, which puts the red **LIVE** badge next to its name in the voice channel. Like the mic icon, it is only the badge: no picture is sent, so anyone who taps the stream gets an endless loading screen.
+
+- If the badge goes away it is asked for again after `LIVE_RETRY`. After five misses in a row the app slows down to 15 times that wait and says so in the log (and in the alerts channel).
+- If Discord refuses it (the account lacks the **Video** permission in the channel), the log says so and it is tried again only after the next join.
+- Stage channels have no Go Live, so nothing is asked for there.
+- `!live` shows whether the badge is on; `!live off` removes it, `!live on` asks for it again. `LIVE=off` removes the feature.
+
+Announcing a stream that carries nothing is one more automated action that Discord can notice on a user account.
+
 ## VC timer
 
 The app counts how long the account has been in voice and keeps a running total.
@@ -117,6 +128,8 @@ To get the link: in your own server, open the channel's settings → **Integrati
 | `GUILD_ID` | no | — | Server ID. Normally not needed; set it if the logs say the channel was not found |
 | `SELF_MUTE` | no | `false` | `false` = mic shown on, `true` = shown muted |
 | `SELF_DEAF` | no | `true` | `true` = shown deafened, `false` = not deafened |
+| `LIVE` | no | `on` | Show the LIVE (streaming) badge in the voice channel. `off` removes it |
+| `LIVE_RETRY` | no | `120000` | Ms to wait before asking for the badge again when it is not showing |
 | `AUTO_REJOIN` | no | `true` | Rejoin when kicked/moved/disconnected |
 | `REJOIN_DELAY` | no | `5000` | Ms to wait before rejoining |
 | `WATCHDOG_INTERVAL` | no | `30000` | Ms between stay-checks |
@@ -169,6 +182,7 @@ Send these from your own account (DM or any text channel). Only your own message
 - `!leave` — leave VC and pause auto-rejoin until next `!join`
 - `!status` — show current VC / target / connection state
 - `!vcs` — list all voice channels with IDs
+- `!live` / `!live off` / `!live on` — is the LIVE badge showing, remove it, ask for it again
 - `!timer` — time in VC for this stay and in total
 - `!reload` — read the cards' applications again (new pictures) and send the cards again
 - `!day` / `!day 5` / `!day reset` — show the day counter, make today day 5, or go back to `DAY_ONE`
