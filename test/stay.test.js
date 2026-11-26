@@ -77,6 +77,7 @@ Object.assign(process.env, {
   PRESENCE_DEBOUNCE: "20",
   ACTIVITY_CLOCK: "total", // cards.test.js covers the time-of-day clock and the second card
   CARD2: "off",
+  LIVE: "off", // live.test.js covers the LIVE badge
   APPLICATION_ID: APP_ID,
   DATA_DIR,
 });

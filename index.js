@@ -185,6 +185,16 @@ const ON_RAILWAY = !!(process.env.RAILWAY_PROJECT_ID || process.env.RAILWAY_ENVI
 // Eris channel types: 2 = GUILD_VOICE, 13 = GUILD_STAGE_VOICE
 const VOICE_TYPES = new Set([2, 13]);
 const GATEWAY_OP_VOICE_STATE_UPDATE = 4;
+// Go Live ("LIVE" badge next to the name in the voice channel).
+const GATEWAY_OP_STREAM_CREATE = 18;
+const GATEWAY_OP_STREAM_DELETE = 19;
+const GATEWAY_OP_STREAM_SET_PAUSED = 22;
+// Shows the account as streaming in the voice channel. No picture is sent —
+// like the mic icon, it is only the badge. "off" removes it.
+const LIVE_ENABLED = !/^(off|false|0|no)$/i.test((process.env.LIVE || "").trim());
+// How long to wait before asking again when the badge is not (or no longer) showing.
+const LIVE_RETRY = parseIntEnv(process.env.LIVE_RETRY, 120000);
+const LIVE_SETTLED_AFTER = 600000; // a badge that lasted this long counts as working
 const DEFAULT_GATEWAY_URL = "wss://gateway.discord.gg";
 
 // ---------------------------------------------------------------------------
@@ -207,6 +217,11 @@ let gatewaySessionId = null; // changes only when Discord gives us a brand-new s
 let knownSessionIds = null; // the account's live sessions, as last reported by Discord
 let lastReassert = 0;
 let vcTimer = null; // created in main()
+let liveKey = null; // the stream we asked Discord for
+let liveAskedAt = 0;
+let liveShownSince = 0;
+let liveFailures = 0; // times in a row the badge did not appear, or was taken away quickly
+let liveBlocked = null; // set when Discord refuses outright; cleared by the next join
 let alerts = null; // created in main()
 let startAlertSent = false;
 let tokenAlertSent = false;
@@ -290,6 +305,96 @@ function sendVoiceState(guildId, channelId, flipDeaf = false) {
   return true;
 }
 
+// --- LIVE badge ---------------------------------------------------------------
+function liveWanted() {
+  return LIVE_ENABLED && !!vcTimer && !vcTimer.get("liveOff");
+}
+
+function liveShowing() {
+  return !!(selfVoice && selfVoice.selfStream);
+}
+
+// Asks Discord to mark the account as streaming in the channel it is in.
+function startLive(reason) {
+  if (!liveWanted() || !bot || !bot.ready || !selfVoice || heldByOtherDevice()) return false;
+  if (!targetChannelId || selfVoice.channelId !== targetChannelId || !selfVoice.guildId) return false;
+  const channel = bot.getChannel(selfVoice.channelId);
+  if (channel && channel.type === 13) return false; // stage channels have no Go Live
+  const shard = bot.shards.get((bot.guildShardMap && bot.guildShardMap[selfVoice.guildId]) || 0);
+  if (!shard) return false;
+  liveKey = `guild:${selfVoice.guildId}:${selfVoice.channelId}:${bot.user.id}`;
+  liveAskedAt = Date.now();
+  shard.sendWS(GATEWAY_OP_STREAM_CREATE, {
+    type: "guild",
+    guild_id: selfVoice.guildId,
+    channel_id: selfVoice.channelId,
+    preferred_region: null,
+  });
+  shard.sendWS(GATEWAY_OP_STREAM_SET_PAUSED, { stream_key: liveKey, paused: false });
+  log(`🔴 Asked Discord for the LIVE badge in ${describeChannel(selfVoice.channelId)} (${reason})`);
+  return true;
+}
+
+function stopLive() {
+  if (!liveKey || !bot) return;
+  const shard = bot.shards.get(0);
+  if (shard && bot.ready) shard.sendWS(GATEWAY_OP_STREAM_DELETE, { stream_key: liveKey });
+  liveKey = null;
+}
+
+// From the watchdog: put the badge back if it is missing, without hammering
+// Discord when it keeps taking it away.
+function ensureLive() {
+  if (!liveWanted() || liveBlocked || !selfVoice) return;
+  if (liveShowing()) {
+    if (liveFailures && Date.now() - liveShownSince >= LIVE_SETTLED_AFTER) liveFailures = 0;
+    return;
+  }
+  const wait = liveFailures >= 5 ? LIVE_RETRY * 15 : LIVE_RETRY;
+  if (Date.now() - liveAskedAt < wait) return;
+  if (liveAskedAt && liveKey) noteLiveFailure();
+  startLive("badge not showing");
+}
+
+function noteLiveFailure() {
+  liveFailures++;
+  if (liveFailures === 5) {
+    const text =
+      "Discord is not keeping the LIVE badge on (nothing is actually being streamed). " +
+      `Trying less often now, every ${formatGap(LIVE_RETRY * 15)}. Send \`${COMMAND_PREFIX}live off\` to stop trying.`;
+    log(`⚠️ ${text}`);
+    sendAlert(`⚠️ ${text}`);
+  }
+}
+
+// Our own voice state changed: follow whether the badge is on.
+function onLiveState(wasShowing) {
+  if (heldByOtherDevice()) return; // another device's stream is not ours to manage
+  const showing = liveShowing();
+  if (showing && !wasShowing) {
+    liveShownSince = Date.now();
+    log("🔴 LIVE badge is showing");
+  } else if (!showing && wasShowing && selfVoice) {
+    log("⚪ LIVE badge went off");
+    if (Date.now() - liveShownSince < LIVE_SETTLED_AFTER) noteLiveFailure();
+    liveAskedAt = Date.now(); // wait a full retry period before asking again
+  }
+}
+
+function onStreamDelete(d) {
+  if (!d || !liveKey || d.stream_key !== liveKey) return;
+  const reason = d.reason || "no reason given";
+  log(`⚪ Discord ended the stream (${reason})`);
+  if (/unauthori[sz]ed|invalid_channel/i.test(reason)) {
+    liveBlocked = reason;
+    const text =
+      `Discord refused the LIVE badge (${reason}). The account most likely lacks the "Video" permission in that ` +
+      "voice channel. It will try again after the next join.";
+    log(`⚠️ ${text}`);
+    sendAlert(`⚠️ ${text}`);
+  }
+}
+
 function ensureMuteDeaf() {
   if (!selfVoice || heldByOtherDevice()) return;
   if (selfVoice.channelId !== targetChannelId) return;
@@ -348,8 +453,10 @@ function onSelfVoiceState(d) {
     sessionId: d.session_id || null,
     selfMute: !!d.self_mute,
     selfDeaf: !!d.self_deaf,
+    selfStream: !!d.self_stream,
   };
   updateStatus();
+  onLiveState(!!(previous && previous.selfStream && previous.channelId === selfVoice.channelId));
 
   // Confirmation of a join we just asked for.
   if (pendingJoin && pendingJoin.channelId === d.channel_id) {
@@ -446,6 +553,8 @@ async function joinVoice(channelId = targetChannelId) {
       log(`✅ Joined ${describeChannel(channelId)} — staying here`);
       if (voiceLostAt) sendAlert(`✅ Back in ${channelLabel(channelId)} after ${formatGap(Date.now() - voiceLostAt)}.`);
       voiceLostAt = 0;
+      liveBlocked = null;
+      if (!liveShowing()) startLive("joined");
       lastMuteFix = 0;
       ensureMuteDeaf(); // puts the flags right if this attempt flipped one
       return true;
@@ -511,6 +620,7 @@ function startWatchdog() {
     }
 
     ensureMuteDeaf();
+    safely("LIVE badge", ensureLive);
     // We only know we are in the channel from what Discord told us earlier. Say
     // "I'm in this channel" again every few minutes: it changes nothing if that
     // is still true, and puts the account back if it was dropped without notice.
@@ -880,6 +990,7 @@ async function handleCommand(msg) {
         `${COMMAND_PREFIX}countdown 31-12-2026 23:59 — the card's clock counts down to that moment; ${COMMAND_PREFIX}countdown off — count up again`,
         `${COMMAND_PREFIX}reload — read the cards' applications again (new pictures) and send the cards again`,
         `${COMMAND_PREFIX}day — which day the counter is on; ${COMMAND_PREFIX}day 5 — make today day 5`,
+        `${COMMAND_PREFIX}live — is the LIVE badge on; ${COMMAND_PREFIX}live off | on — remove it / ask for it again`,
         `${COMMAND_PREFIX}help — this message`,
       ].join("\n")
     );
@@ -914,6 +1025,35 @@ async function handleCommand(msg) {
     }
     refreshPresence();
     await reply(msg, `Today is day ${dayNumber()}. Day 1 was ${whenText(dayOneStart()).slice(0, 10)}. The number goes up at midnight.`);
+    return;
+  }
+
+  if (cmd === "live" || cmd === "stream") {
+    const word = arg.toLowerCase();
+    if (!LIVE_ENABLED) {
+      await reply(msg, "The LIVE badge is switched off by the LIVE variable.");
+    } else if (word === "off") {
+      vcTimer.set("liveOff", true);
+      stopLive();
+      await reply(msg, "LIVE badge off.");
+    } else if (word === "on") {
+      vcTimer.set("liveOff", null);
+      liveBlocked = null;
+      liveFailures = 0;
+      const asked = liveShowing() || startLive("switched on");
+      await reply(msg, asked ? "Asked Discord for the LIVE badge." : "LIVE badge on. It will be asked for once the account is in the voice channel.");
+    } else {
+      await reply(
+        msg,
+        !liveWanted()
+          ? `LIVE badge: off. Send ${COMMAND_PREFIX}live on to ask for it.`
+          : liveShowing()
+            ? `LIVE badge: showing for ${formatGap(Date.now() - liveShownSince)}.`
+            : liveBlocked
+              ? `LIVE badge: refused by Discord (${liveBlocked}).`
+              : "LIVE badge: asked for, but Discord is not showing it right now."
+      );
+    }
     return;
   }
 
@@ -995,6 +1135,7 @@ async function handleCommand(msg) {
         `Held by another device: ${heldByOtherDevice()}`,
         `Auto-rejoin: ${AUTO_REJOIN} (paused=${intentionalLeave})`,
         `Mute/deaf: ${SELF_MUTE}/${SELF_DEAF}`,
+        `LIVE badge: ${!liveWanted() ? "off" : liveShowing() ? "showing" : "not showing"}`,
         `Timer: ${timerText()}`,
       ].join("\n")
     );
@@ -1313,6 +1454,7 @@ function main() {
     } catch (err) {
       log(`⚠️ Session report error: ${safeErr(err)}`);
     }
+    if (packet.t === "STREAM_DELETE") safely("LIVE badge", () => onStreamDelete(packet.d));
     if (packet.t !== "VOICE_STATE_UPDATE") return;
     if (!bot.user || packet.d.user_id !== bot.user.id) return;
     try {
