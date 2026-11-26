@@ -74,7 +74,7 @@ h.finish("CARDS TEST", async () => {
   assert.strictEqual(second.type, 2);
   assert.strictEqual(second.application_id, APP2);
   assert.strictEqual(second.name, "Shark App");
-  assert.strictEqual(second.details, "Activity Intervel 🦈");
+  assert.strictEqual(second.details, "Active Intervel 🦈");
   assert.strictEqual(second.state, `Level 3 · Day ${today()}`);
   assert(lookedUp.every((u) => u.startsWith("https://discord.com/api/")), "only Discord's public pages are read");
 
@@ -101,7 +101,7 @@ h.finish("CARDS TEST", async () => {
   assert.strictEqual(second.timestamps.end - second.timestamps.start, HOUR);
   const into = joinedAt - second.timestamps.start;
   assert(Math.abs(into - (HOUR - 4000)) < 1500, `bar starts 59:56 in (got ${into}ms)`);
-  assert(h.logs.some((l) => /card "Listening to Shark App" — Activity Intervel 🦈 \/ Level 3 · Day \d+ .*bar 1h 0m long/.test(l)), "the second card is logged");
+  assert(h.logs.some((l) => /card "Listening to Shark App" — Active Intervel 🦈 \/ Level 3 · Day \d+ .*bar 1h 0m long/.test(l)), "the second card is logged");
 
   // Discord's own report: both cards → quiet; only one → a clear warning.
   SESSIONS([{ type: 4, name: "Custom Status", state: "x" }, { type: 5, name: "App", application_id: "1" }, { type: 2, name: "Lounge" }]);
@@ -112,7 +112,7 @@ h.finish("CARDS TEST", async () => {
 
   // The level finishes: number goes up and the bar starts again where it ended.
   await h.until(() => cards().length === 2 && /^Level 4 · /.test(cards()[1].state), "level up", 12000);
-  assert.strictEqual(cards()[1].details, "Activity Intervel 🦈");
+  assert.strictEqual(cards()[1].details, "Active Intervel 🦈");
   assert.strictEqual(cards()[1].timestamps.start, second.timestamps.end);
   assert.strictEqual(cards()[1].timestamps.end - cards()[1].timestamps.start, HOUR);
   assert.deepStrictEqual(cards()[0].timestamps, first.timestamps, "card 1 is not disturbed by a level up");

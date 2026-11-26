@@ -71,7 +71,7 @@ By default the account shows three things:
 
 - a **custom status**: `🎧 In VC for 09d-14h-47m`
 - a **Rich Presence card** from your Discord application (`APPLICATION_ID`): `Competing in <app name>`, `Chilling with Alya 🩷🎀`, `dev Lovelycrxshx ♠`, a clock that reads the time of day in India, ticking every second, and two buttons (`Self-run acc, not a real user`, `Contact Admin`) that open a Discord profile
-- a **second card** from a second application (`CARD2_APPLICATION_ID`): `Listening to <app name>`, `Activity Intervel 🦈`, `Day 1`, and a bar such as `05:35:12 ▬●───── 23:56:04` that moves by itself, whose left-hand figure is the time of day in India
+- a **second card** from a second application (`CARD2_APPLICATION_ID`): `Listening to <app name>`, `Active Intervel 🦈`, `Day 1`, and a bar such as `05:35:12 ▬●───── 23:56:04` that moves by itself, whose left-hand figure is the time of day in India
 
 The clock is drawn by Discord on the viewer's screen, so it moves every second without the app sending anything. The custom status is re-sent once a minute with the current days, hours and minutes. `ACTIVITY_REFRESH` can lower that to 5000 (every 5 seconds, with seconds shown: `09d-14h-47m-54s`), which is the fastest Discord permits, but constant status changes make the account look automated.
 
@@ -156,7 +156,7 @@ To get the link: in your own server, open the channel's settings → **Integrati
 | `CARD2_APPLICATION_ID` | no | `1575297984684363846` | Discord application of the second card |
 | `CARD2_NAME` | no | app's name | Title of the second card |
 | `CARD2_IMAGE` | no | first image | Name of the second application's image to show |
-| `CARD2_DETAILS` | no | `Activity Intervel 🦈` | First line of the second card |
+| `CARD2_DETAILS` | no | `Active Intervel 🦈` | First line of the second card |
 | `CARD2_STATE` | no | `Day {day}` | Second line of the second card (empty for none) |
 | `DAY_ONE` | no | `26-11-2026` | The date that counts as day 1 for `{day}` |
 | `CARD2_BAR` | no | `time` | What the bar follows: `time` (time of day) or `level` (voice time) |

@@ -130,7 +130,7 @@ activityConfig.card2 = CARD2_ON
   ? {
       type: (process.env.CARD2_TYPE || "").trim().toLowerCase() === "watching" ? 3 : 2,
       name: process.env.CARD2_NAME || null, // else the application's name, else the channel's
-      details: process.env.CARD2_DETAILS === undefined ? "Activity Intervel 🦈" : process.env.CARD2_DETAILS,
+      details: process.env.CARD2_DETAILS === undefined ? "Active Intervel 🦈" : process.env.CARD2_DETAILS,
       state: process.env.CARD2_STATE === undefined ? "Day {day}" : process.env.CARD2_STATE,
       levelMs: LEVEL_MS,
       // "time": the bar's left-hand figure is the local time of day.
