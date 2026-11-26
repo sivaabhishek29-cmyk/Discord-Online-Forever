@@ -133,6 +133,9 @@ activityConfig.card2 = CARD2_ON
       details: process.env.CARD2_DETAILS === undefined ? "Activity Intervel 🦈" : process.env.CARD2_DETAILS,
       state: process.env.CARD2_STATE === undefined ? "Level {level}" : process.env.CARD2_STATE,
       levelMs: LEVEL_MS,
+      // "time": the bar's left-hand figure is the local time of day.
+      // "level": the bar fills once per LEVEL_TIME of voice time.
+      bar: (process.env.CARD2_BAR || "").trim().toLowerCase() === "level" ? "level" : "time",
       appId: /^\d{15,25}$/.test(CARD2_APP) ? CARD2_APP : null,
       imageId: null, // filled in from the application's uploaded images
     }

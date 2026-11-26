@@ -201,5 +201,15 @@ console.log("TIMER TESTS PASSED");
   assert.strictEqual(day.details, "Voice level 4");
   assert.strictEqual(now - day.timestamps.start, into);
   assert.strictEqual(day.timestamps.end - day.timestamps.start, exact);
+  // Clock bar: starts at local midnight whatever the voice time is, and stays
+  // on the profile outside voice.
+  const clockBar = { ...card2, bar: "time", levelMs: exact };
+  const inVc = buildActivities({ ...base, card2: clockBar }, { ...st, dayStart: 5000, totalMs: 3 * exact + into, totalStart: now - 1 })[2];
+  assert.deepStrictEqual(inVc.timestamps, { start: 5000, end: 5000 + exact });
+  assert.strictEqual(inVc.details, "Voice level 4", "the level still counts voice time");
+  const outOfVc = buildActivities({ ...base, card2: clockBar }, { ...st, inVoice: false, dayStart: 5000, totalMs: into, totalStart: null });
+  assert.strictEqual(outOfVc.length, 3, "the clock bar shows out of voice too");
+  assert.deepStrictEqual(outOfVc[2].timestamps, { start: 5000, end: 5000 + exact });
+  assert.strictEqual(buildActivities({ ...base, card2: clockBar }, { ...st, dayStart: null, totalMs: 0 }).length, 2, "no bar without a day start");
   console.log("TWO-CARD TESTS PASSED");
 }

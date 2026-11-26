@@ -105,8 +105,13 @@ h.finish("ALERTS TEST", async () => {
   // Default refresh is once a minute: no seconds in the text, clock counts up.
   await h.until(() => custom().state === "In VC for 00d-00h-00m", "status text without seconds");
   assert(card().timestamps.start && !card().timestamps.end, "clock counts up by default");
-  // The second card's bar is 23:56:04 long by default: the exact length of a day.
+  // The second card's bar by default: its left-hand figure is India's time of
+  // day (same start as card 1's clock), and it is 23:56:04 long.
   const bar = h.shownActivities()[2];
+  assert.strictEqual(bar.timestamps.start, card().timestamps.start, "bar and clock both start at India midnight");
+  const india = new Date(Date.now() + 5.5 * 3600000);
+  const timeOfDay = ((india.getUTCHours() * 60 + india.getUTCMinutes()) * 60 + india.getUTCSeconds()) * 1000;
+  assert(Math.abs(Date.now() - bar.timestamps.start - timeOfDay) < 2000, "the bar reads the time in India");
   assert.strictEqual(bar.details, "Activity Intervel 🦈");
   assert.strictEqual(bar.application_id, "1575297984684363846");
   assert.strictEqual(bar.timestamps.end - bar.timestamps.start, ((23 * 60 + 56) * 60 + 4) * 1000);

@@ -11,7 +11,7 @@ const HOUR = 3600000;
 // One-hour levels, and a saved total 4 seconds short of finishing level 3.
 const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "cards-test-"));
 fs.writeFileSync(path.join(DATA_DIR, "vc-timer.json"), JSON.stringify({ totalMs: 3 * HOUR - 4000 }));
-h.start({ DATA_DIR, LEVEL_TIME: "1:00:00", ACTIVITY_REFRESH: "5000", WATCHDOG_INTERVAL: "100000" });
+h.start({ DATA_DIR, CARD2_BAR: "level", LEVEL_TIME: "1:00:00", ACTIVITY_REFRESH: "5000", WATCHDOG_INTERVAL: "100000" });
 
 // Discord's public application pages: each card has its own application.
 const APP1 = "1575262829869662312";

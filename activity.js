@@ -150,13 +150,18 @@ function buildActivities(cfg, state) {
   }
 
   // Second card: a progress bar that Discord moves by itself (the way it shows
-  // a song), filling once per level of voice time. Only while in voice — the
-  // bar cannot be paused.
+  // a song). Two kinds:
+  //   "time"  — starts at local midnight, so its left-hand figure is the time of
+  //             day; shown in and out of voice.
+  //   "level" — fills once per level of voice time; only while in voice, since
+  //             the bar cannot be paused.
   const second = cfg.card2;
-  if (second && cfg.mode !== "off" && cfg.mode !== "custom" && state.inVoice && state.totalStart && second.levelMs > 0) {
+  const byClock = !!second && second.bar === "time";
+  const barReady = byClock ? !!state.dayStart : state.inVoice && !!state.totalStart;
+  if (second && cfg.mode !== "off" && cfg.mode !== "custom" && barReady && second.levelMs > 0) {
     const total = Math.max(0, Number(state.totalMs) || 0);
-    const done = Math.floor(total / second.levelMs); // levels completed
-    const start = state.totalStart + done * second.levelMs;
+    const done = Math.floor(total / second.levelMs); // levels of voice time completed
+    const start = byClock ? state.dayStart : state.totalStart + done * second.levelMs;
     const levelValues = { ...values, level: String(done + 1) };
     const bar = {
       name: clamp(fill(second.name || "{channel}", levelValues)) || "voice",
