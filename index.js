@@ -12,8 +12,6 @@ const {
   describeSessions,
   CARD_TYPES,
   CARD_WORDING,
-  cleanStreamUrl,
-  DEFAULT_STREAM_URL,
 } = require("./activity.js");
 
 // ---------------------------------------------------------------------------
@@ -156,13 +154,6 @@ if (activityConfig.card2) {
   }
 }
 const CARD2_IMAGE = process.env.CARD2_IMAGE || "";
-// Purple "streaming" dot on the profile picture ("off" keeps the normal dot).
-const PURPLE_ON = !/^(off|false|0|no)$/i.test((process.env.STREAMING || "").trim());
-const STREAM_URL_ENV = (process.env.STREAM_URL || "").trim();
-const STREAM = {
-  url: cleanStreamUrl(STREAM_URL_ENV) || DEFAULT_STREAM_URL,
-  title: process.env.STREAM_TITLE === undefined ? "Live 24/7 🔴" : process.env.STREAM_TITLE,
-};
 // How often the applications' names and pictures are read again.
 const APP_RECHECK = parseIntEnv(process.env.APP_RECHECK, 900000);
 // The calendar day that counts as "Day 1" ({day} in card text).
@@ -735,10 +726,6 @@ function timerText() {
     : `Not in VC right now — ${total} in total`;
 }
 
-function purpleWanted() {
-  return PURPLE_ON && !!vcTimer && !vcTimer.get("purpleOff");
-}
-
 function activityEnabled() {
   return activityConfig.mode !== "off" && !vcTimer.get("activityOff");
 }
@@ -747,8 +734,6 @@ let presenceDebounce = null;
 let cardSent = false; // true when the last update included the card
 let cardsSent = 0; // how many cards (everything except the status line) were sent
 let cardCountWarned = null;
-let streamSent = false; // true when the last update included the "Streaming" entry
-let streamWarned = false;
 let lastSessionsLine = null;
 let privacyWarned = false;
 
@@ -772,7 +757,7 @@ function onSessions(sessions) {
         "Application ID from the Developer Portal (General Information page), copied in full."
     );
   } else if (own) {
-    const shown = (own.activities || []).filter((a) => a.type !== 4 && a.type !== 1).length;
+    const shown = (own.activities || []).filter((a) => a.type !== 4).length;
     const note = `${shown}/${cardsSent}`;
     if (shown < cardsSent && cardCountWarned !== note) {
       cardCountWarned = note;
@@ -781,16 +766,6 @@ function onSessions(sessions) {
           "the second application's ID, copied in full — or set CARD2=off to go back to one card."
       );
     }
-  }
-  if (own && streamSent) {
-    const kept = (own.activities || []).some((a) => a.type === 1);
-    if (!kept && !streamWarned) {
-      log(
-        "⚠️ Discord dropped the \"Streaming\" entry, so the dot stays its normal colour. Check that " +
-          "STREAM_URL is a Twitch or YouTube link — or set STREAMING=off."
-      );
-    }
-    streamWarned = !kept;
   }
 }
 
@@ -827,7 +802,6 @@ function refreshPresence() {
     const inVoice = inVoiceNow();
     const channel = inVoice ? bot.getChannel(selfVoice.channelId) : null;
     const cfg = { ...activityConfig, customText: vcTimer.get("customText") || activityConfig.customText };
-    cfg.stream = purpleWanted() ? STREAM : null;
     const activities = activityEnabled()
       ? buildActivities(cfg, {
           inVoice,
@@ -850,8 +824,7 @@ function refreshPresence() {
 
     // Log when the kind of activity changes, not on every time tick.
     cardSent = activities.some((a) => a.application_id);
-    cardsSent = activities.filter((a) => a.type !== 4 && a.type !== 1).length;
-    streamSent = activities.some((a) => a.type === 1);
+    cardsSent = activities.filter((a) => a.type !== 4).length;
     const shape = `${activities.map((a) => a.type).join(",")}|${inVoice}|${cfg.customText}|${cfg.appName}|${cfg.imageId}|${countdownEnd() || ""}|${activities.map((a) => (a.timestamps && a.timestamps.start && a.timestamps.end ? a.timestamps.start : "")).join("/")}|${activities.map((a) => (a.assets ? a.assets.large_image : "")).join("/")}`;
     if (shape !== lastPresenceShape || DEBUG) {
       lastPresenceShape = shape;
@@ -861,8 +834,6 @@ function refreshPresence() {
         const parts = activities.map((a) =>
           a.type === 4
             ? `custom status "${a.emoji ? `${a.emoji.name} ` : ""}${a.state}"`
-            : a.type === 1
-              ? `purple dot "Streaming ${a.details || a.name}" → ${a.url}`
             : `card "${CARD_WORDING[a.type]} ${a.name}" — ${[a.details, a.state].filter(Boolean).join(" / ")}${a.assets ? " (with image)" : " (no image)"}` +
               (a.timestamps && a.timestamps.start && a.timestamps.end
                 ? `, bar ${formatGap(a.timestamps.end - a.timestamps.start)} long`
@@ -1019,7 +990,6 @@ async function handleCommand(msg) {
         `${COMMAND_PREFIX}countdown 31-12-2026 23:59 — the card's clock counts down to that moment; ${COMMAND_PREFIX}countdown off — count up again`,
         `${COMMAND_PREFIX}reload — read the cards' applications again (new pictures) and send the cards again`,
         `${COMMAND_PREFIX}day — which day the counter is on; ${COMMAND_PREFIX}day 5 — make today day 5`,
-        `${COMMAND_PREFIX}purple — is the purple streaming dot on; ${COMMAND_PREFIX}purple off | on`,
         `${COMMAND_PREFIX}live — is the LIVE badge on; ${COMMAND_PREFIX}live off | on — remove it / ask for it again`,
         `${COMMAND_PREFIX}help — this message`,
       ].join("\n")
@@ -1055,24 +1025,6 @@ async function handleCommand(msg) {
     }
     refreshPresence();
     await reply(msg, `Today is day ${dayNumber()}. Day 1 was ${whenText(dayOneStart()).slice(0, 10)}. The number goes up at midnight.`);
-    return;
-  }
-
-  if (cmd === "purple" || cmd === "dot") {
-    const word = arg.toLowerCase();
-    if (!PURPLE_ON) {
-      await reply(msg, "The purple dot is switched off by the STREAMING variable.");
-      return;
-    }
-    if (word === "off") vcTimer.set("purpleOff", true);
-    else if (word === "on") vcTimer.set("purpleOff", null);
-    else if (word) {
-      await reply(msg, `Usage: ${COMMAND_PREFIX}purple, ${COMMAND_PREFIX}purple off, ${COMMAND_PREFIX}purple on`);
-      return;
-    }
-    if (word) refreshPresence();
-    const hidden = !activityEnabled() ? " (but the activity is switched off, so nothing is shown)" : "";
-    await reply(msg, purpleWanted() ? `Purple dot: on${hidden}. Link: ${STREAM.url}` : `Purple dot: off. Send ${COMMAND_PREFIX}purple on to bring it back.`);
     return;
   }
 
@@ -1184,7 +1136,6 @@ async function handleCommand(msg) {
         `Auto-rejoin: ${AUTO_REJOIN} (paused=${intentionalLeave})`,
         `Mute/deaf: ${SELF_MUTE}/${SELF_DEAF}`,
         `LIVE badge: ${!liveWanted() ? "off" : liveShowing() ? "showing" : "not showing"}`,
-        `Purple dot: ${purpleWanted() ? "on" : "off"}`,
         `Timer: ${timerText()}`,
       ].join("\n")
     );
@@ -1371,9 +1322,6 @@ function main() {
     `🎭 Activity: ${activityConfig.mode}, status ${STATUS}` +
       (activityConfig.appId ? `, application ${activityConfig.appId}` : ", no valid APPLICATION_ID (card disabled)")
   );
-  if (STREAM_URL_ENV && !cleanStreamUrl(STREAM_URL_ENV)) {
-    log(`⚠️ STREAM_URL must be a Twitch or YouTube link, like https://www.twitch.tv/name — using ${DEFAULT_STREAM_URL} instead.`);
-  }
 
   if (process.env.COUNTDOWN_TO && !parseWhen(process.env.COUNTDOWN_TO, COUNTDOWN_OFFSET)) {
     log("⚠️ COUNTDOWN_TO could not be read as a date. Write it like 31-12-2026 23:59 — counting up instead.");
