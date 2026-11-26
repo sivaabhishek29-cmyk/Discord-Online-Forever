@@ -105,6 +105,11 @@ h.finish("ALERTS TEST", async () => {
   // Default refresh is once a minute: no seconds in the text, clock counts up.
   await h.until(() => custom().state === "In VC for 00d-00h-00m", "status text without seconds");
   assert(card().timestamps.start && !card().timestamps.end, "clock counts up by default");
+  // The second card's bar is 23:56:04 long by default: the exact length of a day.
+  const bar = h.shownActivities()[2];
+  assert.strictEqual(bar.details, "Activity Intervel 🦈");
+  assert.strictEqual(bar.application_id, "1575297984684363846");
+  assert.strictEqual(bar.timestamps.end - bar.timestamps.start, ((23 * 60 + 56) * 60 + 4) * 1000);
 
   // Kicked → alert, automatic rejoin → "back" alert.
   h.voiceState(null);

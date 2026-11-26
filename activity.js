@@ -159,13 +159,17 @@ function buildActivities(cfg, state) {
     const start = state.totalStart + done * second.levelMs;
     const levelValues = { ...values, level: String(done + 1) };
     const bar = {
-      name: clamp(fill(second.name, levelValues)) || "voice",
+      name: clamp(fill(second.name || "{channel}", levelValues)) || "voice",
       type: second.type === 3 ? 3 : 2, // only "Watching" and "Listening to" draw a bar
-      details: clamp(fill(second.details, levelValues)),
-      state: clamp(fill(second.state, levelValues)),
-      timestamps: { start, end: start + second.levelMs },
     };
     if (second.appId) bar.application_id = second.appId;
+    // A line that is left empty is simply not shown.
+    const line1 = clamp(fill(second.details || "", levelValues));
+    const line2 = clamp(fill(second.state || "", levelValues));
+    if (line1) bar.details = line1;
+    if (line2) bar.state = line2;
+    bar.timestamps = { start, end: start + second.levelMs };
+    if (second.appId && second.imageId) bar.assets = { large_image: second.imageId, large_text: bar.name };
     activities.push(bar);
   }
 

@@ -188,5 +188,18 @@ console.log("TIMER TESTS PASSED");
   assert.strictEqual(watching.type, 3);
   assert.strictEqual(watching.application_id, "77");
   assert.strictEqual(watching.details, "Voice level 1");
+  // An empty line is left out; a picture needs the card's own application.
+  const bare = buildActivities({ ...base, card2: { ...card2, details: "Activity Intervel 🦈", state: "", imageId: "9" } }, { ...st, totalMs: 0 })[2];
+  assert.strictEqual(bare.details, "Activity Intervel 🦈");
+  assert(!("state" in bare) && !("assets" in bare));
+  const pictured = buildActivities({ ...base, card2: { ...card2, name: "Shark", appId: "77", imageId: "9" } }, { ...st, totalMs: 0 })[2];
+  assert.deepStrictEqual(pictured.assets, { large_image: "9", large_text: "Shark" });
+  // The exact day: 23:56:04 long, so 14:47:54 in leaves 09:08:10 to go.
+  const exact = ((23 * 60 + 56) * 60 + 4) * 1000;
+  const into = ((14 * 60 + 47) * 60 + 54) * 1000;
+  const day = buildActivities({ ...base, card2: { ...card2, levelMs: exact } }, { ...st, totalMs: 3 * exact + into, totalStart: now - (3 * exact + into) })[2];
+  assert.strictEqual(day.details, "Voice level 4");
+  assert.strictEqual(now - day.timestamps.start, into);
+  assert.strictEqual(day.timestamps.end - day.timestamps.start, exact);
   console.log("TWO-CARD TESTS PASSED");
 }
